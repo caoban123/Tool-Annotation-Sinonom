@@ -1,0 +1,47 @@
+{
+  "description": "Gold standard expected alignments for test fixtures (demo simulated text)",
+  "test_cases": [
+    {
+      "case_id": "T01",
+      "type": "1-1",
+      "han_indices": [0],
+      "viet_indices": [0],
+      "han_expected": "古南交，周號越裳。",
+      "viet_expected": "Đất Nam Giao xưa, nhà Chu gọi là Việt Thường."
+    },
+    {
+      "case_id": "T02",
+      "type": "1-n",
+      "han_indices": [1],
+      "viet_indices": [1, 2],
+      "han_expected": "秦始皇置象郡。",
+      "viet_expected": "Nhà Tần đặt quận Tượng. Lại chia đặt các quan cai trị."
+    },
+    {
+      "case_id": "T03",
+      "type": "n-1",
+      "han_indices": [2, 3],
+      "viet_indices": [3],
+      "han_expected": "漢武帝平南越。 置交趾九郡。",
+      "viet_expected": "Vua Hán Vũ Đế bình định Nam Việt và đặt ra chín quận Giao Chỉ."
+    },
+    {
+      "case_id": "T04",
+      "type": "n-m",
+      "han_indices": [4, 5],
+      "viet_indices": [4, 5],
+      "han_expected": "其地山川秀麗。 氣候溫和。",
+      "viet_expected": "Núi sông vùng ấy tốt tươi đẹp đẽ. Thời tiết bốn mùa ấm áp ôn hòa."
+    },
+    {
+      "case_id": "T13_SPECIAL_CHARS",
+      "type": "1-1",
+      "han_indices": [6],
+      "viet_indices": [6],
+      "han_expected": "=SUM(1+1) 𠀀 𡨸喃 đặc biệt với ký hiệu: 「天地玄黃，宇宙洪荒。」",
+      "viet_expected": "=1+1 Ký tự đặc biệt và chữ Nôm 𠀀 𡨸喃: Trời đất đen vàng, vũ trụ mênh mông."
+    }
+  ],
+  "unassigned_han_indices": [7],
+  "unassigned_viet_indices": [7]
+}

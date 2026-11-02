@@ -1,0 +1,7 @@
+pillow>=10.2.0
+pypdfium2>=4.28.0
+numpy>=1.26.0
+# Optional / Colab / GPU targets:
+# paddlepaddle-gpu>=2.6.0; sys_platform != 'win32'
+# paddleocr>=2.7.3
+# vietocr>=0.3.7

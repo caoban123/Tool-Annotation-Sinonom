@@ -1,0 +1,203 @@
+{% extends "layout.html" %}
+
+{% block title %}Danh Sách Dự Án — Han–Viet Alignment Studio{% endblock %}
+
+{% block content %}
+<div class="flex-1 overflow-y-auto p-6 max-w-7xl mx-auto w-full">
+  <div class="flex items-center justify-between pb-6 border-b border-slate-200">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-900">Không Gian Dóng Hàng Cá Nhân</h1>
+      <p class="text-sm text-slate-500 mt-1">Mỗi sinh viên chạy local độc lập, dóng hàng tác phẩm được giao và xuất gói nghiệm thu chuẩn.</p>
+    </div>
+    <button onclick="document.getElementById('newProjectModal').classList.remove('hidden')" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium text-sm shadow-sm transition flex items-center space-x-2">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+      <span>Tạo Dự Án Mới</span>
+    </button>
+  </div>
+
+  <!-- Projects Grid -->
+  <div class="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    {% for item in projects %}
+    {% set p = item.project %}
+    {% set s = item.stats %}
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow transition flex flex-col p-5">
+      <div class="flex items-start justify-between">
+        <div>
+          <span class="inline-block px-2.5 py-0.5 rounded text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+            {{ p.ma_de_tai }}
+          </span>
+          <h2 class="text-lg font-bold text-slate-800 mt-2 truncate">{{ p.name }}</h2>
+          <p class="text-xs text-slate-400 font-mono mt-0.5">Tác phẩm: {{ p.ma_tac_pham }} | Phạm vi: {{ p.scope }}</p>
+        </div>
+      </div>
+
+      <!-- Progress Stats -->
+      <div class="mt-4 pt-4 border-t border-slate-100 flex-1">
+        <div class="flex justify-between text-xs text-slate-600 mb-1.5 font-medium">
+          <span>Tiến độ dóng hàng:</span>
+          <span><strong class="text-emerald-700 font-bold">{{ s.confirmed_alignments }}</strong> / {{ s.target_count }} cặp</span>
+        </div>
+        {% set pct = (s.confirmed_alignments / s.target_count * 100) | round(1) %}
+        <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+          <div class="bg-emerald-500 h-2 rounded-full" style="width: {{ pct if pct <= 100 else 100 }}%"></div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 mt-4 text-xs">
+          <div class="bg-blue-50/60 p-2 rounded border border-blue-100">
+            <span class="text-slate-500 block">Hán (Đã gán / Tổng):</span>
+            <span class="font-bold text-blue-900">{{ s.total_han_segments - s.unassigned_han }} / {{ s.total_han_segments }} ({{ s.coverage_han_pct }}%)</span>
+          </div>
+          <div class="bg-rose-50/60 p-2 rounded border border-rose-100">
+            <span class="text-slate-500 block">Việt (Đã gán / Tổng):</span>
+            <span class="font-bold text-rose-900">{{ s.total_viet_segments - s.unassigned_viet }} / {{ s.total_viet_segments }} ({{ s.coverage_viet_pct }}%)</span>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-2 mt-3 text-xs text-slate-500">
+          <span class="px-1.5 py-0.5 bg-slate-100 rounded font-mono">1–1: {{ s.confirmed_11 }}</span>
+          <span class="px-1.5 py-0.5 bg-slate-100 rounded font-mono">1–n: {{ s.confirmed_1n }}</span>
+          <span class="px-1.5 py-0.5 bg-slate-100 rounded font-mono">n–1: {{ s.confirmed_n1 }}</span>
+          <span class="px-1.5 py-0.5 bg-slate-100 rounded font-mono">n–m: {{ s.confirmed_nm }}</span>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between">
+        <a href="/workspace/{{ p.id }}" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium text-xs transition">
+          Vào Workspace
+        </a>
+        <div class="space-x-1">
+          <a href="/qa/{{ p.id }}" class="px-2.5 py-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded text-xs transition">
+            QA ({% if s.qa_issues_count > 0 %}<span class="text-amber-600 font-bold">{{ s.qa_issues_count }}</span>{% else %}0{% endif %})
+          </a>
+          <a href="/export/{{ p.id }}" class="px-2.5 py-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded text-xs transition">
+            Xuất file
+          </a>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <div class="col-span-full py-16 text-center bg-white rounded-xl border border-dashed border-slate-300 p-8">
+      <div class="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-3 font-bold text-xl">
+        +
+      </div>
+      <h3 class="text-base font-semibold text-slate-800">Chưa có dự án nào</h3>
+      <p class="text-sm text-slate-500 mt-1 max-w-sm mx-auto">Hãy tạo dự án mới và tải lên hai file <code>han.txt</code> và <code>viet.txt</code> để bắt đầu dóng hàng.</p>
+      <button onclick="document.getElementById('newProjectModal').classList.remove('hidden')" class="mt-4 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700">
+        Tạo Dự Án Đầu Tiên
+      </button>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Modal: Tạo Dự Án Mới -->
+<div id="newProjectModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 border border-slate-200">
+    <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+      <h3 class="text-lg font-bold text-slate-900">Tạo Dự Án Dóng Hàng Mới</h3>
+      <button onclick="document.getElementById('newProjectModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600">&times;</button>
+    </div>
+
+    <form id="createProjectForm" onsubmit="handleCreateProject(event)" class="mt-4 space-y-4">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">Mã đề tài</label>
+          <input type="text" name="ma_de_tai" value="HVB_01" required class="w-full px-3 py-1.5 border border-slate-300 rounded text-sm focus:ring-emerald-500 focus:border-emerald-500 font-mono">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">Mã tác phẩm</label>
+          <input type="text" name="ma_tac_pham" value="NAM_QUOC_SON_HA" required class="w-full px-3 py-1.5 border border-slate-300 rounded text-sm focus:ring-emerald-500 focus:border-emerald-500 font-mono">
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-700 mb-1">Tên dự án / Tác phẩm</label>
+        <input type="text" name="name" placeholder="Ví dụ: Nam Quốc Sơn Hà - Toàn văn" required class="w-full px-3 py-1.5 border border-slate-300 rounded text-sm focus:ring-emerald-500 focus:border-emerald-500">
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">Phạm vi (Quyển/Chương/Trang)</label>
+          <input type="text" name="scope" value="Quyển 1" class="w-full px-3 py-1.5 border border-slate-300 rounded text-sm focus:ring-emerald-500 focus:border-emerald-500">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">Người thực hiện</label>
+          <input type="text" name="assigned_to" value="Sinh viên" class="w-full px-3 py-1.5 border border-slate-300 rounded text-sm focus:ring-emerald-500 focus:border-emerald-500">
+        </div>
+      </div>
+
+      <div class="pt-2 border-t border-slate-100">
+        <label class="block text-xs font-semibold text-blue-900 mb-1">File Văn Bản Hán (han.txt)</label>
+        <input type="file" id="han_file_input" accept=".txt" required class="w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-rose-900 mb-1">File Văn Bản Việt (viet.txt)</label>
+        <input type="file" id="viet_file_input" accept=".txt" required class="w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-rose-50 file:text-rose-700 hover:file:bg-rose-100">
+      </div>
+
+      <div id="createProgress" class="hidden text-xs text-emerald-700 font-medium py-1">
+        Đang xử lý phân đoạn và khởi tạo dự án...
+      </div>
+
+      <div class="flex justify-end space-x-2 pt-4 border-t border-slate-100">
+        <button type="button" onclick="document.getElementById('newProjectModal').classList.add('hidden')" class="px-4 py-2 border border-slate-300 rounded text-xs font-medium text-slate-700 hover:bg-slate-50">Hủy</button>
+        <button type="submit" id="btnSubmitCreate" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-medium transition shadow-sm">Khởi Tạo & Nhập Văn Bản</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function handleCreateProject(e) {
+  e.preventDefault();
+  const form = e.target;
+  const btn = document.getElementById('btnSubmitCreate');
+  const prog = document.getElementById('createProgress');
+
+  btn.disabled = true;
+  prog.classList.remove('hidden');
+
+  try {
+    const payload = {
+      ma_de_tai: form.ma_de_tai.value,
+      ma_tac_pham: form.ma_tac_pham.value,
+      name: form.name.value,
+      scope: form.scope.value,
+      assigned_to: form.assigned_to.value
+    };
+
+    const res = await fetch('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const project = await res.json();
+
+    // Upload han.txt and viet.txt
+    const hanFile = document.getElementById('han_file_input').files[0];
+    const vietFile = document.getElementById('viet_file_input').files[0];
+
+    const formData = new FormData();
+    formData.append('han_file', hanFile);
+    formData.append('viet_file', vietFile);
+
+    const importRes = await fetch(`/api/projects/${project.id}/import`, {
+      method: 'POST',
+      body: formData
+    });
+    if (!importRes.ok) throw new Error(await importRes.text());
+
+    window.location.href = `/workspace/${project.id}`;
+  } catch (err) {
+    alert('Lỗi: ' + err.message);
+    btn.disabled = false;
+    prog.classList.add('hidden');
+  }
+}
+</script>
+{% endblock %}

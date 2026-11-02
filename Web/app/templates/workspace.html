@@ -1,0 +1,179 @@
+{% extends "layout.html" %}
+
+{% block title %}Workspace — {{ project.name }}{% endblock %}
+
+{% block content %}
+<div class="flex-1 flex flex-col h-full overflow-hidden bg-slate-100" id="app" data-project-id="{{ project.id }}">
+
+  <!-- Sticky Top Control Bar -->
+  <div class="bg-white border-b border-slate-200 px-4 py-2.5 shadow-sm z-20 flex flex-wrap items-center justify-between gap-3">
+    <!-- Left: Filters & Search -->
+    <div class="flex items-center space-x-2">
+      <div class="relative">
+        <input type="text" id="searchInput" placeholder="Tìm kiếm text / ID... (Ctrl+K)" 
+          class="pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg w-56 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-sans">
+        <svg class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+      </div>
+
+      <div class="flex bg-slate-100 p-0.5 rounded-lg text-xs font-medium text-slate-600">
+        <button onclick="setFilter('all')" id="filter-all" class="filter-btn px-2.5 py-1 rounded bg-white text-slate-800 shadow-xs">Tất cả</button>
+        <button onclick="setFilter('unassigned')" id="filter-unassigned" class="filter-btn px-2.5 py-1 rounded hover:text-slate-900">Chưa gán</button>
+        <button onclick="setFilter('confirmed')" id="filter-confirmed" class="filter-btn px-2.5 py-1 rounded hover:text-slate-900">Đã gán</button>
+        <button onclick="setFilter('needs_review')" id="filter-needs_review" class="filter-btn px-2.5 py-1 rounded hover:text-slate-900">Cần duyệt</button>
+        <button onclick="setFilter('suggested')" id="filter-suggested" class="filter-btn px-2.5 py-1 rounded hover:text-slate-900">Gợi ý AI</button>
+      </div>
+    </div>
+
+    <!-- Center: Live Alignment Preview & Confirm Action -->
+    <div class="flex items-center space-x-3 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg flex-1 max-w-2xl justify-between">
+      <div class="flex items-center space-x-2 overflow-hidden text-xs">
+        <span id="cardinalityBadge" class="px-2 py-0.5 rounded font-mono font-bold bg-slate-200 text-slate-700">0–0</span>
+        <div class="truncate max-w-md text-slate-600" id="previewText">
+          <em>Chọn phân đoạn Hán và Việt liền kề để dóng hàng...</em>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-2 flex-shrink-0">
+        <button id="btnConfirm" onclick="confirmAlignment()" disabled
+          class="px-3 py-1 bg-emerald-600 disabled:bg-slate-300 disabled:cursor-not-allowed hover:bg-emerald-700 text-white rounded font-medium text-xs shadow-xs transition flex items-center space-x-1">
+          <span>Xác nhận</span>
+          <kbd class="text-[10px] bg-emerald-800/40 px-1 rounded">Ctrl+Enter</kbd>
+        </button>
+        <button onclick="clearSelection()" title="Bỏ chọn (Esc)" class="px-2 py-1 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded text-xs">
+          Hủy (Esc)
+        </button>
+      </div>
+    </div>
+
+    <!-- Right: Undo & AI suggestions tools -->
+    <div class="flex items-center space-x-2">
+      <button onclick="undoAlignment()" title="Hoàn tác cặp vừa dóng (Ctrl+Z)"
+        class="px-2.5 py-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-medium flex items-center space-x-1">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg>
+        <span>Hoàn tác</span>
+      </button>
+
+      <button onclick="document.getElementById('aiSuggestionsModal').classList.remove('hidden')"
+        class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 hover:bg-purple-100 text-purple-700 rounded-lg text-xs font-medium flex items-center space-x-1">
+        <svg class="w-3.5 h-3.5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+        <span>Gợi ý AI</span>
+      </button>
+
+      <span id="saveStatus" class="text-[11px] text-emerald-700 font-medium flex items-center space-x-1 pl-1">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+        <span>Đã lưu</span>
+      </span>
+    </div>
+  </div>
+
+  <!-- Two-Column Workspace Container -->
+  <div class="flex-1 grid grid-cols-2 gap-px bg-slate-200 overflow-hidden">
+
+    <!-- Column 1: Hán Văn -->
+    <div class="flex flex-col bg-slate-50 h-full overflow-hidden">
+      <div class="bg-blue-50/70 border-b border-blue-200 px-4 py-2 flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
+          <h2 class="font-bold text-sm text-blue-900">Văn Bản Hán</h2>
+          <span id="hanCount" class="text-xs text-blue-700 font-mono font-medium">(0)</span>
+        </div>
+        <div class="flex space-x-1">
+          <button onclick="promptMergeSegments('han')" class="px-2 py-0.5 text-xs bg-white border border-blue-200 text-blue-800 rounded hover:bg-blue-50">
+            Gộp các đoạn chọn
+          </button>
+        </div>
+      </div>
+
+      <div id="hanColumn" class="flex-1 overflow-y-auto p-4 space-y-2.5 font-cjk">
+        <!-- Rendered dynamically -->
+        <div class="text-center py-12 text-slate-400 text-sm">Đang tải phân đoạn Hán...</div>
+      </div>
+    </div>
+
+    <!-- Column 2: Việt Văn -->
+    <div class="flex flex-col bg-slate-50 h-full overflow-hidden">
+      <div class="bg-rose-50/70 border-b border-rose-200 px-4 py-2 flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-rose-600"></span>
+          <h2 class="font-bold text-sm text-rose-900">Văn Bản Việt</h2>
+          <span id="vietCount" class="text-xs text-rose-700 font-mono font-medium">(0)</span>
+        </div>
+        <div class="flex space-x-1">
+          <button onclick="promptMergeSegments('viet')" class="px-2 py-0.5 text-xs bg-white border border-rose-200 text-rose-800 rounded hover:bg-rose-50">
+            Gộp các đoạn chọn
+          </button>
+        </div>
+      </div>
+
+      <div id="vietColumn" class="flex-1 overflow-y-auto p-4 space-y-2.5 font-sans">
+        <!-- Rendered dynamically -->
+        <div class="text-center py-12 text-slate-400 text-sm">Đang tải phân đoạn Việt...</div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- Modal: Sửa Phân Đoạn -->
+<div id="editSegmentModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 border border-slate-200">
+    <h3 class="text-base font-bold text-slate-900 pb-2 border-b border-slate-100">Sửa Nội Dung Phân Đoạn</h3>
+    <input type="hidden" id="edit_seg_id">
+    <div class="mt-4">
+      <label class="block text-xs font-semibold text-slate-700 mb-1">Nội dung câu:</label>
+      <textarea id="edit_seg_text" rows="4" class="w-full p-2.5 border border-slate-300 rounded text-sm focus:ring-emerald-500 focus:border-emerald-500"></textarea>
+    </div>
+    <div class="flex justify-end space-x-2 mt-4 pt-3 border-t border-slate-100">
+      <button onclick="document.getElementById('editSegmentModal').classList.add('hidden')" class="px-3 py-1.5 border border-slate-300 rounded text-xs">Hủy</button>
+      <button onclick="submitEditSegment()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-medium">Lưu Thay Đổi</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Tách Phân Đoạn -->
+<div id="splitSegmentModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 border border-slate-200">
+    <h3 class="text-base font-bold text-slate-900 pb-2 border-b border-slate-100">Tách Phân Đoạn</h3>
+    <input type="hidden" id="split_seg_id">
+    <p class="text-xs text-slate-500 mt-2">Nhập mỗi câu/phần tách trên một dòng:</p>
+    <div class="mt-2">
+      <textarea id="split_seg_texts" rows="5" class="w-full p-2.5 border border-slate-300 rounded text-sm focus:ring-emerald-500 focus:border-emerald-500"></textarea>
+    </div>
+    <div class="flex justify-end space-x-2 mt-4 pt-3 border-t border-slate-100">
+      <button onclick="document.getElementById('splitSegmentModal').classList.add('hidden')" class="px-3 py-1.5 border border-slate-300 rounded text-xs">Hủy</button>
+      <button onclick="submitSplitSegment()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-medium">Thực Hiện Tách</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Gợi Ý AI -->
+<div id="aiSuggestionsModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 border border-slate-200">
+    <h3 class="text-base font-bold text-purple-900 pb-2 border-b border-slate-100 flex items-center space-x-2">
+      <span>Tải Lên File Gợi Ý AI (suggestions.json)</span>
+    </h3>
+    <div class="mt-4 space-y-3">
+      <p class="text-xs text-slate-600">
+        File <code>suggestions.json</code> do Semantic Alignment notebook sinh ra. Hệ thống sẽ kiểm tra hash nguồn để đảm bảo tính toàn vẹn.
+      </p>
+      <div>
+        <input type="file" id="ai_suggestions_file" accept=".json" class="w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100">
+      </div>
+      <div class="pt-2">
+        <a href="/api/suggestions/export-segments?project_id={{ project.id }}" target="_blank" class="text-xs text-blue-600 hover:underline">
+          &darr; Tải segments.jsonl hiện tại để đưa vào Colab/Jupyter Notebook
+        </a>
+      </div>
+    </div>
+    <div class="flex justify-end space-x-2 mt-5 pt-3 border-t border-slate-100">
+      <button onclick="document.getElementById('aiSuggestionsModal').classList.add('hidden')" class="px-3 py-1.5 border border-slate-300 rounded text-xs">Đóng</button>
+      <button onclick="submitAiSuggestions()" class="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs font-medium">Nhập Gợi Ý</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/workspace.js"></script>
+{% endblock %}

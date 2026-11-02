@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="vi" class="h-full bg-slate-50">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Han–Viet Alignment Studio{% endblock %}</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50: '#f0fdf4', 500: '#16a34a', 600: '#15803d', 700: '#166534' },
+            han: { 50: '#eff6ff', 100: '#dbeafe', 600: '#2563eb', 800: '#1e40af' },
+            viet: { 50: '#fef2f2', 100: '#fee2e2', 600: '#dc2626', 800: '#991b1b' },
+          },
+          fontFamily: {
+            cjk: ['"Noto Serif CJK SC"', '"Noto Serif CJK TC"', '"Source Han Serif"', '"SimSun"', 'serif'],
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .font-cjk { font-family: "Noto Serif CJK TC", "Noto Serif CJK SC", "SimSun", "Songti SC", serif; }
+    /* Scrollbar styling */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+<body class="h-full flex flex-col font-sans text-slate-800 antialiased">
+  <!-- Top Navigation -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex justify-between h-14 items-center">
+        <div class="flex items-center space-x-3">
+          <a href="/" class="flex items-center space-x-2 text-slate-900 font-bold text-lg hover:text-emerald-700">
+            <span class="p-1.5 bg-emerald-600 text-white rounded font-mono text-sm">漢越</span>
+            <span>Han–Viet Alignment Studio</span>
+          </a>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-medium">Local v1.0</span>
+        </div>
+        <nav class="flex items-center space-x-4 text-sm font-medium">
+          <a href="/" class="text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-md hover:bg-slate-100">Dự án</a>
+          {% if project %}
+          <span class="text-slate-300">/</span>
+          <span class="text-slate-800 font-semibold truncate max-w-xs">{{ project.name }} ({{ project.ma_de_tai }})</span>
+          <a href="/workspace/{{ project.id }}" class="text-emerald-700 hover:bg-emerald-50 px-3 py-1.5 rounded-md">Workspace</a>
+          <a href="/qa/{{ project.id }}" class="text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-md hover:bg-slate-100">QA & Lỗi</a>
+          <a href="/export/{{ project.id }}" class="text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-md hover:bg-slate-100">Xuất & Sao lưu</a>
+          {% endif %}
+        </nav>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-1 flex flex-col overflow-hidden">
+    {% block content %}{% endblock %}
+  </main>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

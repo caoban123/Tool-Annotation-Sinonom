@@ -1,0 +1,161 @@
+{% extends "layout.html" %}
+
+{% block title %}Kiểm Định Chất Lượng QA — {{ project.name }}{% endblock %}
+
+{% block content %}
+<div class="flex-1 overflow-y-auto p-6 max-w-7xl mx-auto w-full">
+  <div class="flex items-center justify-between pb-6 border-b border-slate-200">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-900">Báo Cáo Kiểm Định Chất Lượng (QA)</h1>
+      <p class="text-sm text-slate-500 mt-1">Phát hiện câu chưa dóng, lỗi định dạng formula Excel, đảo thứ tự và tỷ lệ lỗi mẫu thực kiểm.</p>
+    </div>
+    <button onclick="runQaScan()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium shadow-sm transition flex items-center space-x-2">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+      <span>Quét Lỗi Tự Động</span>
+    </button>
+  </div>
+
+  <!-- Quality Metrics Summary -->
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
+    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+      <span class="text-xs text-slate-500 font-medium">Tổng vấn đề QA mở:</span>
+      <div class="text-2xl font-bold text-slate-800 mt-1" id="qaTotalIssues">{{ stats.qa_issues_count }}</div>
+    </div>
+    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+      <span class="text-xs text-slate-500 font-medium">Chưa gán (MISSING):</span>
+      <div class="text-2xl font-bold text-amber-600 mt-1">Hán: {{ stats.unassigned_han }} | Việt: {{ stats.unassigned_viet }}</div>
+    </div>
+    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+      <span class="text-xs text-slate-500 font-medium">Bao phủ văn bản:</span>
+      <div class="text-2xl font-bold text-blue-600 mt-1">H: {{ stats.coverage_han_pct }}% | V: {{ stats.coverage_viet_pct }}%</div>
+    </div>
+    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+      <span class="text-xs text-slate-500 font-medium">Tỷ lệ lỗi mẫu kiểm tra:</span>
+      <div class="text-2xl font-bold text-slate-800 mt-1">
+        {% if stats.evaluation_status == 'not evaluated' %}
+        <span class="text-xs text-slate-400 font-normal">Chưa đánh giá mẫu (not evaluated)</span>
+        {% else %}
+        <span class="{% if stats.error_rate_pct <= 20 %}text-emerald-600{% elif stats.error_rate_pct <= 30 %}text-amber-600{% else %}text-rose-600{% endif %}">
+          {{ stats.evaluation_status }}
+        </span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Issues List Table -->
+  <div class="mt-8 bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+    <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+      <h3 class="font-bold text-slate-800 text-sm">Danh Sách Cảnh Báo & Lỗi</h3>
+      <span class="text-xs text-slate-400">Tự động làm mới khi quét</span>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-xs text-slate-600">
+        <thead class="bg-slate-50 text-slate-700 uppercase font-semibold border-b border-slate-200 text-[11px]">
+          <tr>
+            <th class="px-6 py-3">Mã lỗi</th>
+            <th class="px-6 py-3">Mức độ</th>
+            <th class="px-6 py-3">Chi tiết vấn đề</th>
+            <th class="px-6 py-3">Liên kết</th>
+            <th class="px-6 py-3 text-right">Thao tác</th>
+          </tr>
+        </thead>
+        <tbody id="issuesTableBody" class="divide-y divide-slate-100">
+          <tr class="text-center">
+            <td colspan="5" class="py-8 text-slate-400">Đang tải danh sách cảnh báo...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const projectId = "{{ project.id }}";
+
+document.addEventListener('DOMContentLoaded', loadIssues);
+
+async function loadIssues() {
+  try {
+    const res = await fetch(`/api/qa?project_id=${projectId}`);
+    const issues = await res.json();
+    renderIssues(issues);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function renderIssues(issues) {
+  const tbody = document.getElementById('issuesTableBody');
+  tbody.innerHTML = '';
+
+  if (issues.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" class="py-12 text-center text-emerald-600 font-medium">Không phát hiện lỗi hoặc cảnh báo nào. Dữ liệu sạch sẽ!</td></tr>`;
+    return;
+  }
+
+  issues.forEach(i => {
+    const tr = document.createElement('tr');
+    tr.className = 'hover:bg-slate-50/60 transition';
+
+    let codeBadge = `<span class="px-2 py-0.5 rounded font-mono font-bold text-[10px] bg-slate-100 text-slate-800">${i.code}</span>`;
+    if (i.code === 'MISSING') codeBadge = `<span class="px-2 py-0.5 rounded font-mono font-bold text-[10px] bg-amber-100 text-amber-800">MISSING</span>`;
+    if (i.code === 'FORMAT') codeBadge = `<span class="px-2 py-0.5 rounded font-mono font-bold text-[10px] bg-purple-100 text-purple-800">FORMAT</span>`;
+    if (i.code === 'ORDER') codeBadge = `<span class="px-2 py-0.5 rounded font-mono font-bold text-[10px] bg-rose-100 text-rose-800">ORDER</span>`;
+
+    let sevBadge = i.severity === 'error'
+      ? `<span class="text-rose-600 font-bold">Lỗi nghiêm trọng</span>`
+      : `<span class="text-amber-600 font-medium">Cảnh báo</span>`;
+
+    tr.innerHTML = `
+      <td class="px-6 py-3">${codeBadge}</td>
+      <td class="px-6 py-3">${sevBadge}</td>
+      <td class="px-6 py-3 text-slate-800">${escapeHtml(i.comment)}</td>
+      <td class="px-6 py-3 font-mono text-slate-500">
+        ${i.alignment_id ? `Align: ${i.alignment_id.slice(-6)}` : ''}
+        ${i.segment_id ? `Seg: ${i.segment_id.slice(-8)}` : ''}
+      </td>
+      <td class="px-6 py-3 text-right">
+        ${i.status === 'open' ? `
+          <button onclick="resolveIssue('${i.id}')" class="px-2.5 py-1 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-700 rounded text-[11px] font-medium transition">
+            Đánh dấu Đã xử lý
+          </button>
+        ` : `<span class="text-emerald-600 font-medium">Đã xử lý</span>`}
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+async function runQaScan() {
+  try {
+    const res = await fetch(`/api/qa/scan?project_id=${projectId}`, { method: 'POST' });
+    if (!res.ok) throw new Error('Không thể chạy quét QA');
+    await loadIssues();
+    location.reload();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function resolveIssue(issueId) {
+  try {
+    const res = await fetch(`/api/qa/${issueId}/resolve`, { method: 'POST' });
+    if (!res.ok) throw new Error('Không thể giải quyết');
+    await loadIssues();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.innerText = text;
+  return div.innerHTML;
+}
+</script>
+{% endblock %}
