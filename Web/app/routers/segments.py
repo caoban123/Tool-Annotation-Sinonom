@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import Segment, Alignment, AlignmentMember
 from ..schemas import SegmentOut, SegmentUpdate, SegmentSplitRequest, SegmentMergeRequest
-from ..services.segmentation import edit_segment, split_segment, merge_segments
+from ..services.segmentation import edit_segment, split_segment, merge_segments, delete_segment
 
 router = APIRouter(prefix="/api/segments", tags=["segments"])
 
@@ -130,3 +130,18 @@ def merge_segments_endpoint(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.delete("/{segment_id}")
+def delete_segment_endpoint(
+    segment_id: str,
+    project_id: str = Query(...),
+    db: Session = Depends(get_db)
+):
+    try:
+        deleted = delete_segment(db, project_id, segment_id)
+        db.commit()
+        return {"status": "success", "deleted_id": deleted.id}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+

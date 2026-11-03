@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from Web.app.db import Base
 from Web.app.models import Project, Task, Document, Segment, Alignment, AlignmentMember, QAIssue
 from Web.app.services.import_txt import process_txt_bytes
-from Web.app.services.segmentation import segment_document, edit_segment, split_segment, merge_segments
+from Web.app.services.segmentation import segment_document, edit_segment, split_segment, merge_segments, delete_segment
 from Web.app.services.alignment import create_alignment, undo_last_alignment
 from Web.app.services.export import get_confirmed_pairs, generate_tsv, generate_xlsx, verify_export_parity
 from Web.app.services.quality import get_project_statistics, run_automated_qa
@@ -292,3 +292,32 @@ def test_t16_team_consolidation(test_db, project_setup, tmp_path):
 
     with pytest.raises(ValueError, match="xung đột mã đề tài"):
         consolidate_packages([zip1, zip_conflict], cons_dir)
+
+def test_delete_segment_and_cascade_unconfirm(test_db, project_setup):
+    proj_id = project_setup["project"].id
+    han_segs = project_setup["han_segs"]
+    viet_segs = project_setup["viet_segs"]
+
+    # Create 1-1 alignment with first segments
+    align = create_alignment(test_db, proj_id, [han_segs[0].id], [viet_segs[0].id])
+    test_db.commit()
+
+    # Verify alignment exists
+    assert test_db.query(Alignment).filter(Alignment.id == align.id).count() == 1
+
+    # Delete han_segs[0]
+    deleted_seg = delete_segment(test_db, proj_id, han_segs[0].id)
+    test_db.commit()
+
+    assert deleted_seg.active is False
+    # Verify alignment was cleaned up / deleted
+    assert test_db.query(Alignment).filter(Alignment.id == align.id).count() == 0
+
+    # Verify next Han segment had order_index shifted from 1 to 0
+    remaining_han = test_db.query(Segment).filter(
+        Segment.project_id == proj_id,
+        Segment.language == "han",
+        Segment.active == True
+    ).order_by(Segment.order_index).all()
+    assert remaining_han[0].order_index == 0
+

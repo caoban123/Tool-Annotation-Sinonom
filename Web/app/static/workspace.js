@@ -153,11 +153,12 @@ function renderSide(side, segments, container, selectedSet) {
       </div>
       <div class="mt-2 pt-1.5 flex items-center justify-between text-[11px] text-slate-400">
         <span>Trang ${seg.page_ref}</span>
-        <div class="flex items-center space-x-1">
+        <div class="flex items-center space-x-1.5">
           <button onclick="openEditModal('${seg.id}')" title="Sửa phân đoạn" class="hover:text-slate-700 px-1 py-0.5 rounded hover:bg-slate-100">Sửa</button>
           <button onclick="openSplitModal('${seg.id}')" title="Tách phân đoạn" class="hover:text-slate-700 px-1 py-0.5 rounded hover:bg-slate-100">Tách</button>
+          <button onclick="deleteSegment('${seg.id}')" title="Xóa ô / phân đoạn này" class="text-slate-400 hover:text-rose-600 hover:bg-rose-50 px-1 py-0.5 rounded transition">Xóa ô</button>
           ${seg.alignment_id ? `
-            <button onclick="deleteAlignment('${seg.alignment_id}')" title="Xóa dóng hàng" class="text-rose-500 hover:text-rose-700 px-1 py-0.5 rounded hover:bg-rose-50">Gỡ</button>
+            <button onclick="deleteAlignment('${seg.alignment_id}')" title="Hủy xác nhận dóng hàng" class="text-rose-600 hover:text-white hover:bg-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded font-medium transition">Hủy dóng</button>
           ` : ''}
         </div>
       </div>
@@ -221,6 +222,8 @@ function updateSelectionPreview() {
   const btn = document.getElementById('btnConfirm');
 
   if (numHan === 0 && numViet === 0) {
+    const btnUnconfirm = document.getElementById('btnUnconfirm');
+    if (btnUnconfirm) btnUnconfirm.style.display = 'none';
     badge.innerText = '0–0';
     badge.className = 'px-2 py-0.5 rounded font-mono font-bold bg-slate-200 text-slate-700';
     preview.innerHTML = '<em>Chọn phân đoạn Hán và Việt liền kề để dóng hàng...</em>';
@@ -264,8 +267,23 @@ function updateSelectionPreview() {
     previewHtml += `<span class="text-amber-600 font-bold text-xs ml-2">(Việt không liền kề)</span>`;
   }
 
+  const btnUnconfirm = document.getElementById('btnUnconfirm');
+  const selectedWithAlign = [...hanSelectedSegs, ...vietSelectedSegs].filter(s => s.alignment_id);
+  if (selectedWithAlign.length > 0) {
+    if (btnUnconfirm) {
+      btnUnconfirm.style.display = 'inline-flex';
+      const uniqueAlignCount = new Set(selectedWithAlign.map(s => s.alignment_id)).size;
+      btnUnconfirm.innerHTML = `<svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg><span>Hủy xác nhận (${uniqueAlignCount})</span>`;
+    }
+    previewHtml += `<span class="text-rose-600 font-semibold text-xs ml-2">(Có phân đoạn đã dóng - bấm Hủy xác nhận để gỡ)</span>`;
+  } else {
+    if (btnUnconfirm) {
+      btnUnconfirm.style.display = 'none';
+    }
+  }
+
   preview.innerHTML = previewHtml;
-  btn.disabled = !isValid;
+  btn.disabled = (!isValid || selectedWithAlign.length > 0);
 }
 
 function checkContiguity(segs) {
@@ -334,13 +352,66 @@ async function undoAlignment() {
 }
 
 async function deleteAlignment(alignId) {
-  if (!confirm('Bạn có chắc muốn gỡ cặp dóng hàng này?')) return;
+  if (!confirm('Bạn có chắc muốn hủy xác nhận cặp dóng hàng này? Cặp phân đoạn sẽ chuyển lại trạng thái chưa gán.')) return;
   try {
+    showSaveStatus('Đang hủy dóng...', 'amber');
     const res = await fetch(`/api/alignments/${alignId}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Không thể gỡ cặp dóng hàng');
+    if (!res.ok) throw new Error('Không thể hủy xác nhận cặp dóng hàng');
     await loadWorkspaceData();
+    showSaveStatus('Đã hủy dóng', 'emerald');
   } catch (err) {
     alert(err.message);
+    showSaveStatus('Lỗi hủy dóng', 'rose');
+  }
+}
+
+async function unconfirmSelected() {
+  const selected = [...hanSegments, ...vietSegments].filter(s => (selectedHan.has(s.id) || selectedViet.has(s.id)) && s.alignment_id);
+  const alignIds = [...new Set(selected.map(s => s.alignment_id))];
+  if (alignIds.length === 0) return;
+
+  if (!confirm(`Bạn có chắc muốn hủy xác nhận ${alignIds.length} cặp dóng hàng đã chọn?`)) return;
+
+  try {
+    showSaveStatus('Đang hủy dóng...', 'amber');
+    for (const id of alignIds) {
+      const res = await fetch(`/api/alignments/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Không thể hủy xác nhận cặp dóng hàng');
+    }
+    clearSelection();
+    await loadWorkspaceData();
+    showSaveStatus('Đã hủy dóng', 'emerald');
+  } catch (err) {
+    alert(err.message);
+    showSaveStatus('Lỗi hủy dóng', 'rose');
+  }
+}
+
+async function deleteSegment(segId) {
+  const seg = [...hanSegments, ...vietSegments].find(s => s.id === segId);
+  if (!seg) return;
+
+  const previewText = seg.clean_text.length > 40 ? seg.clean_text.substring(0, 40) + '...' : seg.clean_text;
+  if (!confirm(`Bạn có chắc muốn xóa ô / phân đoạn này?\n\n"${previewText}"\n\nÔ này sẽ bị loại bỏ hoàn toàn và các ô sau sẽ tự động được đánh lại số thứ tự liên tục.`)) {
+    return;
+  }
+
+  try {
+    showSaveStatus('Đang xóa ô...', 'amber');
+    const res = await fetch(`/api/segments/${segId}?project_id=${projectId}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Không thể xóa ô');
+    }
+
+    selectedHan.delete(segId);
+    selectedViet.delete(segId);
+
+    await loadWorkspaceData();
+    showSaveStatus('Đã xóa ô', 'emerald');
+  } catch (err) {
+    alert('Lỗi xóa ô: ' + err.message);
+    showSaveStatus('Lỗi xóa ô', 'rose');
   }
 }
 

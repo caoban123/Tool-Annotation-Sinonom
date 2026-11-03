@@ -302,3 +302,52 @@ def merge_segments(
     )
     db.flush()
     return merged_seg
+
+def delete_segment(
+    db: Session,
+    project_id: str,
+    segment_id: str
+) -> Segment:
+    """
+    Deactivates a segment (soft delete / remove from active workspace).
+    Invalidates/removes any associated alignments and shifts order_index of subsequent segments.
+    """
+    seg = db.query(Segment).filter(
+        Segment.id == segment_id,
+        Segment.project_id == project_id,
+        Segment.active == True
+    ).first()
+    if not seg:
+        raise ValueError(f"Không tìm thấy phân đoạn {segment_id}")
+
+    # Remove any alignments this segment is part of
+    memberships = db.query(AlignmentMember).filter(AlignmentMember.segment_id == segment_id).all()
+    for m in memberships:
+        align = db.query(Alignment).filter(Alignment.id == m.alignment_id).first()
+        if align:
+            db.delete(align)
+
+    seg.active = False
+    seg.revision += 1
+
+    # Shift order_index of subsequent active segments
+    subsequent = db.query(Segment).filter(
+        Segment.project_id == project_id,
+        Segment.language == seg.language,
+        Segment.active == True,
+        Segment.order_index > seg.order_index
+    ).all()
+    for s in subsequent:
+        s.order_index -= 1
+
+    record_revision(
+        db,
+        project_id=project_id,
+        action="delete_segment",
+        entity_type="Segment",
+        entity_id=segment_id,
+        before_state={"text": seg.clean_text, "order_index": seg.order_index, "language": seg.language}
+    )
+    db.flush()
+    return seg
+

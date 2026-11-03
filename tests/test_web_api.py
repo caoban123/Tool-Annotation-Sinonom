@@ -94,3 +94,25 @@ def test_api_workflow_end_to_end():
     zip_res = client.get(f"/api/exports/zip?project_id={proj_id}")
     assert zip_res.status_code == 200
     assert len(zip_res.content) > 0
+
+    # 10. Test unconfirm specific alignment via DELETE /api/alignments/{id}
+    align_list = client.get(f"/api/alignments?project_id={proj_id}").json()
+    assert len(align_list) == 1
+    target_align_id = align_list[0]["id"]
+    del_align_res = client.delete(f"/api/alignments/{target_align_id}")
+    assert del_align_res.status_code == 200
+    align_list_after = client.get(f"/api/alignments?project_id={proj_id}").json()
+    assert len(align_list_after) == 0
+
+    # 11. Test delete 1 segment / cell via DELETE /api/segments/{id}
+    segs_before = client.get(f"/api/segments?project_id={proj_id}&language=han").json()
+    count_before = len(segs_before)
+    seg_to_delete = segs_before[0]
+    del_seg_res = client.delete(f"/api/segments/{seg_to_delete['id']}?project_id={proj_id}")
+    assert del_seg_res.status_code == 200
+
+    segs_after = client.get(f"/api/segments?project_id={proj_id}&language=han").json()
+    assert len(segs_after) == count_before - 1
+    # Check that subsequent segments were re-indexed starting from 0
+    assert segs_after[0]["order_index"] == 0
+
