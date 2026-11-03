@@ -20,9 +20,14 @@ class BaseOCREngine:
             # Attempt to import real PaddleOCR
             from paddleocr import PaddleOCR
             lang = "ch" if "han" in self.model_name.lower() or "ch" in self.model_name.lower() else "vi"
-            self.paddle = PaddleOCR(use_angle_cls=True, lang=lang, use_gpu=self.use_gpu, show_log=False)
-            self.engine_type = f"paddleocr_official (lang={lang}, gpu={self.use_gpu})"
-            print(f"[OCR Engine] ✓ Đã khởi tạo mô hình AI PaddleOCR thật ({self.engine_type})")
+            try:
+                self.paddle = PaddleOCR(use_angle_cls=True, lang=lang, use_gpu=self.use_gpu, show_log=False)
+                self.engine_type = f"paddleocr_official (lang={lang}, gpu={self.use_gpu})"
+            except Exception as gpu_err:
+                print(f"[OCR Engine] Cảnh báo GPU: {gpu_err}. Đang tự động chuyển sang PaddleOCR chế độ CPU...")
+                self.paddle = PaddleOCR(use_angle_cls=True, lang=lang, use_gpu=False, show_log=False)
+                self.engine_type = f"paddleocr_official (lang={lang}, gpu=False)"
+            print(f"[OCR Engine] ✓ Đã nạp thành công mô hình AI PaddleOCR thật ({self.engine_type})")
         except Exception as e:
             # Fallback to local CPU test adapter
             self.paddle = None
