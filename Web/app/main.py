@@ -55,6 +55,14 @@ def index_page(request: Request, db: Session = Depends(get_db)):
         project_stats.append({"project": p, "stats": stats})
     return templates.TemplateResponse(request=request, name="index.html", context={"projects": project_stats})
 
+@app.get("/clean/{project_id}")
+def clean_text_page(project_id: str, request: Request, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        return templates.TemplateResponse(request=request, name="404.html", context={"message": "Không tìm thấy dự án"})
+    stats = get_project_statistics(db, project_id)
+    return templates.TemplateResponse(request=request, name="clean_text.html", context={"project": project, "stats": stats})
+
 @app.get("/workspace/{project_id}")
 def workspace_page(project_id: str, request: Request, db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.id == project_id).first()

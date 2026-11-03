@@ -41,6 +41,77 @@ def export_tsv_endpoint(project_id: str = Query(...), db: Session = Depends(get_
         media_type="text/tab-separated-values"
     )
 
+@router.get("/clean-text")
+def export_clean_text(
+    project_id: str = Query(...),
+    language: str = Query("han"), # 'han' or 'viet'
+    db: Session = Depends(get_db)
+):
+    from ..models import Segment
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+
+    segs = db.query(Segment).filter(
+        Segment.project_id == project_id,
+        Segment.language == language,
+        Segment.active == True
+    ).order_by(Segment.order_index).all()
+
+    clean_content = "\n".join(s.clean_text for s in segs)
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
+    tmp_path = Path(tmp.name)
+    tmp.close()
+
+    with open(tmp_path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(clean_content)
+
+    return FileResponse(
+        path=str(tmp_path),
+        filename=f"{project.ma_tac_pham}_{language}_clean.txt",
+        media_type="text/plain; charset=utf-8"
+    )
+
+@router.get("/raw-text")
+def export_raw_text(
+    project_id: str = Query(...),
+    language: str = Query("han"), # 'han' or 'viet'
+    db: Session = Depends(get_db)
+):
+    from ..models import Segment, Document
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+
+    # Check if raw storage file exists
+    storage_path = Path(__file__).resolve().parent.parent.parent / "data" / "documents" / f"{project_id}_{language}_raw.txt"
+    if storage_path.exists():
+        return FileResponse(
+            path=str(storage_path),
+            filename=f"{project.ma_tac_pham}_{language}_raw_tho.txt",
+            media_type="text/plain; charset=utf-8"
+        )
+
+    # Fallback to segments raw_text
+    segs = db.query(Segment).filter(
+        Segment.project_id == project_id,
+        Segment.language == language,
+        Segment.active == True
+    ).order_by(Segment.order_index).all()
+    raw_content = "\n".join(s.raw_text for s in segs)
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
+    tmp_path = Path(tmp.name)
+    tmp.close()
+
+    with open(tmp_path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(raw_content)
+
+    return FileResponse(
+        path=str(tmp_path),
+        filename=f"{project.ma_tac_pham}_{language}_raw_tho.txt",
+        media_type="text/plain; charset=utf-8"
+    )
+
 @router.get("/xlsx")
 def export_xlsx_endpoint(project_id: str = Query(...), db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.id == project_id).first()

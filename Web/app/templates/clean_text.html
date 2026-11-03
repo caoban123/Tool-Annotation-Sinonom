@@ -1,0 +1,195 @@
+{% extends "layout.html" %}
+
+{% block title %}Xử Lý Văn Bản Thô & Sạch — {{ project.name }}{% endblock %}
+
+{% block content %}
+<div class="flex-1 flex flex-col h-full overflow-hidden bg-slate-100" id="cleanApp" data-project-id="{{ project.id }}">
+
+  <!-- Top Action & Navigation Bar -->
+  <div class="bg-white border-b border-slate-200 px-6 py-3 shadow-xs flex items-center justify-between z-10">
+    <div class="flex items-center space-x-4">
+      <div>
+        <h1 class="text-base font-bold text-slate-800">Quản Lý & Làm Sạch Văn Bản (Thô & Sạch)</h1>
+        <p class="text-xs text-slate-500">Đối chiếu và hiệu chỉnh giữa bản thô ban đầu (02_ocr_tho) và bản text sạch đã chuẩn hóa (03_text_sach).</p>
+      </div>
+
+      <!-- Language Selector Tabs -->
+      <div class="flex bg-slate-100 p-1 rounded-lg text-xs font-semibold">
+        <button onclick="switchLang('han')" id="btn-lang-han" class="px-3 py-1.5 rounded-md bg-white text-blue-800 shadow-xs">
+          Văn Bản Hán
+        </button>
+        <button onclick="switchLang('viet')" id="btn-lang-viet" class="px-3 py-1.5 rounded-md text-slate-600 hover:text-slate-900">
+          Văn Bản Việt
+        </button>
+      </div>
+    </div>
+
+    <!-- Export & Batch Action Buttons -->
+    <div class="flex items-center space-x-2">
+      <button onclick="batchNormalizeWhitespace()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium transition">
+        Chuẩn Hóa Khoảng Trắng
+      </button>
+
+      <a id="btnDownloadRaw" href="/api/exports/raw-text?project_id={{ project.id }}&language=han" 
+        class="px-3 py-1.5 bg-amber-50 border border-amber-200 hover:bg-amber-100 text-amber-800 rounded-lg text-xs font-medium transition flex items-center space-x-1">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+        <span>Tải Text Thô (02_ocr_tho)</span>
+      </a>
+
+      <a id="btnDownloadClean" href="/api/exports/clean-text?project_id={{ project.id }}&language=han" 
+        class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium transition flex items-center space-x-1 shadow-xs">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+        <span>Tải Text Sạch (03_text_sach)</span>
+      </a>
+    </div>
+  </div>
+
+  <!-- Comparison Workspace: Left = Raw, Right = Clean -->
+  <div class="flex-1 grid grid-cols-2 gap-px bg-slate-200 overflow-hidden">
+    
+    <!-- Left Column: Raw Text -->
+    <div class="flex flex-col bg-white h-full overflow-hidden">
+      <div class="bg-amber-50/60 border-b border-amber-200 px-4 py-2 flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+          <h2 class="font-bold text-xs text-amber-900 uppercase tracking-wider">Văn Bản Thô Nguyên Bản (Raw OCR / Crawl)</h2>
+        </div>
+        <span class="text-[11px] text-amber-700 font-mono">Bất biến / Dùng để đối chiếu</span>
+      </div>
+      <div id="rawContainer" class="flex-1 overflow-y-auto p-4 space-y-3 font-mono text-xs text-slate-700 bg-amber-50/10">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+
+    <!-- Right Column: Clean Text -->
+    <div class="flex flex-col bg-white h-full overflow-hidden">
+      <div class="bg-emerald-50/60 border-b border-emerald-200 px-4 py-2 flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>
+          <h2 class="font-bold text-xs text-emerald-900 uppercase tracking-wider">Văn Bản Sạch Đã Làm Sạch (Clean Text Chuẩn)</h2>
+        </div>
+        <span class="text-[11px] text-emerald-700 font-mono">Dùng để dóng hàng & nghiệm thu</span>
+      </div>
+      <div id="cleanContainer" class="flex-1 overflow-y-auto p-4 space-y-3 font-sans text-xs text-slate-800 bg-emerald-50/10">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const projectId = "{{ project.id }}";
+let currentLang = "han";
+let segments = [];
+
+document.addEventListener("DOMContentLoaded", loadData);
+
+function switchLang(lang) {
+  currentLang = lang;
+  if (lang === "han") {
+    document.getElementById("btn-lang-han").className = "px-3 py-1.5 rounded-md bg-white text-blue-800 shadow-xs";
+    document.getElementById("btn-lang-viet").className = "px-3 py-1.5 rounded-md text-slate-600 hover:text-slate-900";
+  } else {
+    document.getElementById("btn-lang-viet").className = "px-3 py-1.5 rounded-md bg-white text-rose-800 shadow-xs";
+    document.getElementById("btn-lang-han").className = "px-3 py-1.5 rounded-md text-slate-600 hover:text-slate-900";
+  }
+  document.getElementById("btnDownloadRaw").href = `/api/exports/raw-text?project_id=${projectId}&language=${lang}`;
+  document.getElementById("btnDownloadClean").href = `/api/exports/clean-text?project_id=${projectId}&language=${lang}`;
+  loadData();
+}
+
+async function loadData() {
+  const rawBox = document.getElementById("rawContainer");
+  const cleanBox = document.getElementById("cleanContainer");
+  rawBox.innerHTML = '<div class="text-center py-10 text-slate-400">Đang tải...</div>';
+  cleanBox.innerHTML = '<div class="text-center py-10 text-slate-400">Đang tải...</div>';
+
+  try {
+    const res = await fetch(`/api/segments?project_id=${projectId}&language=${currentLang}`);
+    segments = await res.json();
+    renderComparison();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function renderComparison() {
+  const rawBox = document.getElementById("rawContainer");
+  const cleanBox = document.getElementById("cleanContainer");
+  rawBox.innerHTML = '';
+  cleanBox.innerHTML = '';
+
+  segments.forEach((seg, idx) => {
+    // Raw card
+    const rawCard = document.createElement("div");
+    rawCard.className = "p-3 rounded-lg border border-slate-200 bg-white text-xs";
+    rawCard.innerHTML = `
+      <div class="text-[10px] text-slate-400 font-mono pb-1 border-b border-slate-100 flex justify-between">
+        <span>#${seg.order_index} (Trang ${seg.page_ref})</span>
+        <span>Thô</span>
+      </div>
+      <div class="mt-2 ${currentLang === 'han' ? 'font-cjk text-sm' : 'font-sans'} text-slate-700">${escapeHtml(seg.raw_text)}</div>
+    `;
+    rawBox.appendChild(rawCard);
+
+    // Clean card
+    const cleanCard = document.createElement("div");
+    cleanCard.className = "p-3 rounded-lg border border-emerald-200 bg-white text-xs";
+    cleanCard.innerHTML = `
+      <div class="text-[10px] text-emerald-700 font-mono pb-1 border-b border-slate-100 flex justify-between items-center">
+        <span>#${seg.order_index} — Sạch</span>
+        <button onclick="inlineEdit('${seg.id}')" class="text-emerald-700 hover:text-emerald-900 font-bold px-1.5 py-0.5 rounded bg-emerald-50">Sửa câu</button>
+      </div>
+      <div id="clean_text_${seg.id}" class="mt-2 ${currentLang === 'han' ? 'font-cjk text-sm' : 'font-sans'} text-slate-900 font-medium">${escapeHtml(seg.clean_text)}</div>
+    `;
+    cleanBox.appendChild(cleanCard);
+  });
+}
+
+async function inlineEdit(segId) {
+  const seg = segments.find(s => s.id === segId);
+  if (!seg) return;
+  const newText = prompt("Chỉnh sửa nội dung câu sạch:", seg.clean_text);
+  if (newText === null || newText.trim() === seg.clean_text) return;
+
+  try {
+    const res = await fetch(`/api/segments/${segId}?project_id=${projectId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clean_text: newText.trim() })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    await loadData();
+  } catch (err) {
+    alert("Lỗi sửa: " + err.message);
+  }
+}
+
+async function batchNormalizeWhitespace() {
+  if (!confirm("Chuẩn hóa khoảng trắng và dấu cách cho toàn bộ câu của ngôn ngữ này?")) return;
+  for (const s of segments) {
+    const norm = s.clean_text.replace(/\\s+/g, " ").trim();
+    if (norm !== s.clean_text) {
+      await fetch(`/api/segments/${s.id}?project_id=${projectId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clean_text: norm })
+      });
+    }
+  }
+  alert("Đã hoàn tất chuẩn hóa khoảng trắng!");
+  await loadData();
+}
+
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.innerText = text;
+  return div.innerHTML;
+}
+</script>
+{% endblock %}

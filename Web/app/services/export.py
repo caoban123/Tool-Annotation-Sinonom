@@ -169,6 +169,8 @@ def build_delivery_zip(db: Session, project_id: str, out_zip_path: Path) -> Dict
 
         han_clean_path = tmp / "han.txt"
         viet_clean_path = tmp / "viet.txt"
+        han_raw_path = tmp / "han_tho.txt"
+        viet_raw_path = tmp / "viet_tho.txt"
 
         han_segs = db.query(Segment).filter(
             Segment.project_id == project_id,
@@ -188,6 +190,14 @@ def build_delivery_zip(db: Session, project_id: str, out_zip_path: Path) -> Dict
         with open(viet_clean_path, "w", encoding="utf-8", newline="\n") as f:
             for s in viet_segs:
                 f.write(s.clean_text + "\n")
+
+        with open(han_raw_path, "w", encoding="utf-8", newline="\n") as f:
+            for s in han_segs:
+                f.write(s.raw_text + "\n")
+
+        with open(viet_raw_path, "w", encoding="utf-8", newline="\n") as f:
+            for s in viet_segs:
+                f.write(s.raw_text + "\n")
 
         # Reports
         stats = get_project_statistics(db, project_id)
@@ -245,6 +255,8 @@ def build_delivery_zip(db: Session, project_id: str, out_zip_path: Path) -> Dict
             z.write(xlsx_file, f"{ma_prefix}/04_dong_hang/{project.ma_tac_pham}_parallel.xlsx")
             z.write(han_clean_path, f"{ma_prefix}/03_text_sach/han.txt")
             z.write(viet_clean_path, f"{ma_prefix}/03_text_sach/viet.txt")
+            z.write(han_raw_path, f"{ma_prefix}/02_ocr_tho/han/han_tho.txt")
+            z.write(viet_raw_path, f"{ma_prefix}/02_ocr_tho/viet/viet_tho.txt")
             z.write(stats_file, f"{ma_prefix}/reports/statistics.json")
             z.write(qa_file, f"{ma_prefix}/reports/qa_report.csv")
             z.write(provenance_file, f"{ma_prefix}/reports/provenance.json")

@@ -49,6 +49,7 @@
           {% if project %}
           <span class="text-slate-300">/</span>
           <span class="text-slate-800 font-semibold truncate max-w-xs">{{ project.name }} ({{ project.ma_de_tai }})</span>
+          <a href="/clean/{{ project.id }}" class="text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-md hover:bg-slate-100">Thô & Sạch</a>
           <a href="/workspace/{{ project.id }}" class="text-emerald-700 hover:bg-emerald-50 px-3 py-1.5 rounded-md">Workspace</a>
           <a href="/qa/{{ project.id }}" class="text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-md hover:bg-slate-100">QA & Lỗi</a>
           <a href="/export/{{ project.id }}" class="text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-md hover:bg-slate-100">Xuất & Sao lưu</a>

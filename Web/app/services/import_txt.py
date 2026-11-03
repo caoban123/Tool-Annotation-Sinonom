@@ -50,6 +50,15 @@ def process_txt_bytes(
 
     doc_id = f"doc_{language}_{uuid.uuid4().hex[:8]}"
 
+    # Save raw bytes to storage directory
+    from pathlib import Path
+    storage_dir = Path(__file__).resolve().parent.parent.parent / "data" / "documents"
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    raw_storage_path = storage_dir / f"{project_id}_{language}_raw.txt"
+    with open(raw_storage_path, "wb") as f:
+        f.write(raw_bytes)
+    provenance["raw_storage_path"] = str(raw_storage_path)
+
     # Deactivate or remove previous document for this language in project if re-importing
     old_doc = db.query(Document).filter(
         Document.project_id == project_id,
