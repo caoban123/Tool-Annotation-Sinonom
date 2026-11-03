@@ -20,13 +20,26 @@ class BaseOCREngine:
             # Attempt to import real PaddleOCR
             from paddleocr import PaddleOCR
             lang = "ch" if "han" in self.model_name.lower() or "ch" in self.model_name.lower() else "vi"
-            try:
-                self.paddle = PaddleOCR(use_angle_cls=True, lang=lang, use_gpu=self.use_gpu, show_log=False)
-                self.engine_type = f"paddleocr_official (lang={lang}, gpu={self.use_gpu})"
-            except Exception as gpu_err:
-                print(f"[OCR Engine] Cảnh báo GPU: {gpu_err}. Đang tự động chuyển sang PaddleOCR chế độ CPU...")
-                self.paddle = PaddleOCR(use_angle_cls=True, lang=lang, use_gpu=False, show_log=False)
-                self.engine_type = f"paddleocr_official (lang={lang}, gpu=False)"
+            
+            # Khởi tạo tương thích đa phiên bản PaddleOCR (bản mới bỏ use_gpu)
+            paddle_inst = None
+            for kwargs in [
+                {"use_angle_cls": True, "lang": lang, "show_log": False},
+                {"lang": lang},
+                {"use_angle_cls": True, "lang": lang, "use_gpu": self.use_gpu, "show_log": False},
+                {"use_angle_cls": True, "lang": lang, "use_gpu": False, "show_log": False}
+            ]:
+                try:
+                    paddle_inst = PaddleOCR(**kwargs)
+                    break
+                except Exception:
+                    continue
+
+            if paddle_inst is None:
+                paddle_inst = PaddleOCR()
+
+            self.paddle = paddle_inst
+            self.engine_type = f"paddleocr_official (lang={lang})"
             print(f"[OCR Engine] ✓ Đã nạp thành công mô hình AI PaddleOCR thật ({self.engine_type})")
         except Exception as e:
             # Fallback to local CPU test adapter
@@ -34,7 +47,7 @@ class BaseOCREngine:
             self.is_mock = True
             self.engine_type = "cpu_test_adapter (PaddleOCR chưa được cài đặt trong môi trường)"
             print(f"[OCR Engine] ⚠️ CHÚ Ý: Đang chạy ở chế độ MOCK TEST ADAPTER (Dữ liệu giả lập mẫu).")
-            print(f"            Lý do: Chưa cài đặt thư viện 'paddleocr' ({e}).")
+            print(f"            Lý do: Không thể nạp thư viện 'paddleocr' ({e}).")
             print(f"            Để chạy AI thật, hãy cài đặt: pip install paddlepaddle paddleocr")
 
     def recognize_image(self, image: Image.Image) -> List[Dict[str, Any]]:
@@ -42,7 +55,10 @@ class BaseOCREngine:
         if not self.is_mock and self.paddle is not None:
             import numpy as np
             img_arr = np.array(image.convert("RGB"))
-            raw_res = self.paddle.ocr(img_arr, cls=True)
+            try:
+                raw_res = self.paddle.ocr(img_arr, cls=True)
+            except Exception:
+                raw_res = self.paddle.ocr(img_arr)
             boxes = []
             if raw_res and raw_res[0]:
                 for item in raw_res[0]:
