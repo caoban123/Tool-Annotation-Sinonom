@@ -5,11 +5,15 @@ locates local files in data/source_materials, and handles auto-pull from GitHub 
 """
 
 import os
+import sys
 import subprocess
+import zipfile
 from pathlib import Path
 from typing import Dict, Any, Optional
 
 DEFAULT_CV01_REPO = "https://github.com/caoban123/CV01.git"
+DEFAULT_GDRIVE_FILE_ID = "1buDy5j8bNtFLUzh1yvTSOPX5dAyE_ShG"
+DEFAULT_GDRIVE_URL = f"https://drive.google.com/uc?id={DEFAULT_GDRIVE_FILE_ID}"
 
 WORKS_CATALOG: Dict[str, Dict[str, Any]] = {
     "HVNTDDC": {
@@ -99,58 +103,113 @@ def get_works_catalog() -> Dict[str, Dict[str, Any]]:
     """Return dictionary of all registered works."""
     return WORKS_CATALOG
 
+def download_from_gdrive(
+    gdrive_id: str = DEFAULT_GDRIVE_FILE_ID,
+    target_dir: Path = Path("data/source_materials")
+) -> bool:
+    """
+    Tự động kéo toàn bộ dữ liệu 660MB PDF gốc từ link Google Drive công khai qua gdown.
+    Giải nén và sắp xếp đúng cấu trúc thư mục data/source_materials.
+    """
+    try:
+        import gdown
+    except ImportError:
+        print("[DataLoader] Đang cài đặt thư viện gdown để kéo dữ liệu từ Google Drive...")
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "gdown"], check=False)
+        try:
+            import gdown
+        except Exception:
+            print("[DataLoader] Không thể cài đặt gdown.")
+            return False
+
+    temp_zip = target_dir.parent / "_source_materials_download.zip"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[DataLoader] 🚀 Đang tự động kéo toàn bộ 660MB PDF gốc từ Google Drive (ID: {gdrive_id})...")
+
+    try:
+        downloaded = gdown.download(id=gdrive_id, output=str(temp_zip), quiet=False)
+        if not downloaded or not temp_zip.exists() or temp_zip.stat().st_size < 100000:
+            print("[DataLoader] Tải file từ Google Drive không thành công hoặc file rỗng.")
+            if temp_zip.exists():
+                temp_zip.unlink(missing_ok=True)
+            return False
+
+        print(f"[DataLoader] 📦 Đang giải nén bộ tài liệu vào: {target_dir}...")
+        with zipfile.ZipFile(str(temp_zip), "r") as zf:
+            zf.extractall(str(target_dir))
+        temp_zip.unlink(missing_ok=True)
+
+        # Xử lý nếu giải nén tạo thư mục lồng nhau: target_dir/source_materials/...
+        nested = target_dir / "source_materials"
+        if nested.exists() and nested.is_dir():
+            for sub in nested.iterdir():
+                dest = target_dir / sub.name
+                if not dest.exists():
+                    sub.rename(dest)
+            import shutil
+            shutil.rmtree(nested, ignore_errors=True)
+
+        print("[DataLoader] ✓ Tải và giải nén toàn bộ 660MB PDF gốc thành công!")
+        return True
+    except Exception as e:
+        print(f"[DataLoader] Lỗi trong quá trình kéo Google Drive: {e}")
+        if temp_zip.exists():
+            temp_zip.unlink(missing_ok=True)
+        return False
+
 def ensure_data_source(
     base_dir: str = "data/source_materials",
-    git_repo_url: str = DEFAULT_CV01_REPO
+    git_repo_url: str = DEFAULT_CV01_REPO,
+    gdrive_id: str = DEFAULT_GDRIVE_FILE_ID
 ) -> Path:
     """
-    Ensures that source materials exist locally.
-    If the directory is empty or missing (e.g. running on Google Colab or a fresh clone),
-    automatically pulls the dataset from the remote GitHub CV01 repository.
+    Đảm bảo dữ liệu tư liệu nguồn có sẵn:
+    1. Kiểm tra nếu đã có file PDF dung lượng thực tế.
+    2. Nếu đang chạy trên Colab và đã mount Google Drive, tự động nhận diện.
+    3. Tự động kéo 660MB từ link Google Drive của người dùng (băng thông không giới hạn).
+    4. Fallback: Nếu không có kết nối Google Drive, thử kéo CV01 git.
     """
     target = Path(base_dir).resolve()
     target.mkdir(parents=True, exist_ok=True)
 
-    # Check if any valid PDF files exist inside target
+    # 1. Kiểm tra nếu đã có file PDF nhị phân thật (>2KB)
     existing_pdfs = [p for p in target.rglob("*.pdf") if is_valid_pdf_file(p)]
     if existing_pdfs:
-        print(f"[DataLoader] Tìm thấy {len(existing_pdfs)} file PDF dung lượng thực tế trong: {target}")
+        print(f"[DataLoader] ✓ Tìm thấy {len(existing_pdfs)} file PDF dung lượng thực tế trong: {target}")
         return target
 
-    # Check if LFS pointer files exist
-    lfs_pointers = [p for p in target.rglob("*.pdf") if is_lfs_pointer_file(p)]
-    if lfs_pointers:
-        print(f"[DataLoader] Phát hiện {len(lfs_pointers)} file PDF con trỏ Git LFS (~130 bytes). Đang thử kéo dữ liệu nhị phân với git lfs pull...")
-        try:
-            subprocess.run(["git", "lfs", "install"], check=False, capture_output=True)
-            subprocess.run(["git", "lfs", "pull"], cwd=str(target), check=False, capture_output=True)
-            # Re-check after pull
-            refreshed = [p for p in target.rglob("*.pdf") if is_valid_pdf_file(p)]
-            if refreshed:
-                print(f"[DataLoader] git lfs pull thành công: {len(refreshed)} file PDF đã được tải!")
-                return target
-        except Exception:
-            pass
-        print("[DataLoader] Lưu ý: GitHub LFS có thể đã hết hạn ngạch băng thông tải về (1GB/tháng của GitHub).")
-        print("[DataLoader] Hệ thống sẽ tự động dùng file scan kiểm thử fixture mẫu để chạy demo trơn tru.")
+    # 2. Kiểm tra nếu chạy Colab đã mount Drive
+    colab_drive_paths = [
+        Path("/content/drive/MyDrive/source_materials"),
+        Path("/content/drive/MyDrive/CV01"),
+        Path("/content/drive/MyDrive/data/source_materials")
+    ]
+    for drive_p in colab_drive_paths:
+        if drive_p.exists() and [p for p in drive_p.rglob("*.pdf") if is_valid_pdf_file(p)]:
+            print(f"[DataLoader] ✓ Đã phát hiện tài liệu trong Google Drive: {drive_p}")
+            for item in drive_p.iterdir():
+                dest = target / item.name
+                if not dest.exists():
+                    try:
+                        dest.symlink_to(item)
+                    except Exception:
+                        pass
+            return target
+
+    # 3. Tự động kéo từ Google Drive công khai qua gdown
+    print(f"[DataLoader] Chưa có file PDF nhị phân trong {target}.")
+    success = download_from_gdrive(gdrive_id=gdrive_id, target_dir=target)
+    if success:
         return target
 
-    print(f"[DataLoader] Chưa thấy file PDF nào trong {target}.")
-    print(f"[DataLoader] Đang tự động kéo dữ liệu từ {git_repo_url}...")
-
+    # 4. Fallback kéo CV01 repo
+    print(f"[DataLoader] Đang thử kéo bổ trợ từ GitHub {git_repo_url}...")
     try:
         temp_dir = target / "_cv01_temp"
         subprocess.run(
             ["git", "clone", "--depth", "1", git_repo_url, str(temp_dir)],
             check=True
         )
-        # Attempt git lfs pull inside temp_dir
-        try:
-            subprocess.run(["git", "lfs", "pull"], cwd=str(temp_dir), check=False, capture_output=True)
-        except Exception:
-            pass
-
-        # Move items into target
         for item in temp_dir.iterdir():
             if item.name.startswith(".git"):
                 continue
@@ -159,10 +218,8 @@ def ensure_data_source(
                 item.rename(dest_item)
         import shutil
         shutil.rmtree(temp_dir, ignore_errors=True)
-        print(f"[DataLoader] Kéo cấu trúc thư mục hoàn tất vào: {target}")
     except Exception as e:
-        print(f"[DataLoader] Cảnh báo khi tải dữ liệu từ git: {e}")
-        print("[DataLoader] Nếu chạy trên Colab, bạn có thể upload file PDF trực tiếp vào thư mục runtime.")
+        print(f"[DataLoader] Cảnh báo khi tải từ git: {e}")
 
     return target
 
