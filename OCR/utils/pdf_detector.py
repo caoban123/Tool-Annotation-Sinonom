@@ -7,7 +7,15 @@ Inspects internal PDF streams to reliably differentiate between:
 
 from pathlib import Path
 from typing import Dict, Any
-import pypdf
+import sys
+import subprocess
+
+try:
+    import pypdf
+except ImportError:
+    # Auto-install pypdf if missing (e.g. running in fresh Colab session)
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "pypdf"], check=False)
+    import pypdf
 
 def inspect_pdf(pdf_path: str, sample_pages: int = 5) -> Dict[str, Any]:
     """

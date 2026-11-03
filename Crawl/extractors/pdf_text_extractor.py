@@ -1,8 +1,16 @@
 import os
 import datetime
+import sys
+import subprocess
 from pathlib import Path
 from typing import Dict, Any, Optional
-import pypdf
+
+try:
+    import pypdf
+except ImportError:
+    # Auto-install pypdf if missing
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "pypdf"], check=False)
+    import pypdf
 
 def extract_from_pdf_text(
     pdf_path: str,

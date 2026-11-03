@@ -2,6 +2,33 @@
 
 Dành cho các thành viên cần xử lý file scan nặng hoặc muốn tận dụng GPU T4/V100 miễn phí trên Google Colab để chạy mô hình AI.
 
+---
+
+## 📌 Hướng Dẫn Mở Notebook Bằng Biểu Tượng "Open In Colab"
+
+Ở đầu mỗi notebook (`01_Crawl_Text.ipynb`, `01_OCR_Han.ipynb`, `02_OCR_Viet.ipynb`, `01_Semantic_Alignment.ipynb`) đều có sẵn biểu tượng:
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com)
+
+### ⚠️ Lưu ý quan trọng khi bấm vào biểu tượng:
+1. **Nếu Repository ở chế độ Public:**
+   - Chỉ cần nhấp vào biểu tượng, notebook sẽ tự động mở ngay trên Google Colab.
+
+2. **Nếu Repository ở chế độ Private (hoặc gặp thông báo lỗi 404 Not Found / Unable to open):**
+   - Google Colab mặc định không thể đọc mã nguồn từ kho lưu trữ riêng tư nếu chưa được ủy quyền.
+   - **Cách khắc phục 1 (Khuyến nghị)**: 
+     1. Truy cập [Google Colab](https://colab.research.google.com).
+     2. Chọn menu **File** $\rightarrow$ **Open notebook** (hoặc mở cửa sổ chọn file).
+     3. Chọn thẻ **GitHub** $\rightarrow$ Tích chọn ô **"Include private repositories"** (Bao gồm kho lưu trữ riêng tư).
+     4. Đăng nhập và ủy quyền tài khoản GitHub cho Google Colab.
+     5. Nhập tên repo `caoban123/Tool-Annotation-Sinonom`, chọn nhánh `main` và mở notebook tương ứng.
+   - **Cách khắc phục 2**: 
+     - Vào GitHub $\rightarrow$ **Settings** của repository $\rightarrow$ Cuộn xuống mục **Danger Zone** $\rightarrow$ Chọn **Change repository visibility** sang **Public**.
+   - **Cách khắc phục 3**: 
+     - Tải trực tiếp file `.ipynb` từ máy tính lên tab **Upload** của Google Colab.
+
+---
+
 ## 1. Hướng Dẫn Chạy OCR Chữ Hán / Việt Trên Colab
 1. Mở [Google Colab](https://colab.research.google.com).
 2. Chọn **Runtime** $\rightarrow$ **Change runtime type** $\rightarrow$ Chọn **T4 GPU**.

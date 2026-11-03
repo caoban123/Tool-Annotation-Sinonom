@@ -1,8 +1,15 @@
 import io
+import sys
+import subprocess
 from pathlib import Path
 from typing import List, Optional
 from PIL import Image
-import pypdfium2 as pdfium
+
+try:
+    import pypdfium2 as pdfium
+except ImportError:
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "pypdfium2"], check=False)
+    import pypdfium2 as pdfium
 
 def render_pdf_to_images(
     pdf_path: str,

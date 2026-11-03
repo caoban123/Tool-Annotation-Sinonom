@@ -3,10 +3,17 @@ Script to build upgraded notebooks:
 - Crawl/notebooks/01_Crawl_Text.ipynb
 - OCR/notebooks/01_OCR_Han.ipynb
 - OCR/notebooks/02_OCR_Viet.ipynb
+- Web/notebooks/01_Semantic_Alignment.ipynb
 """
 
 import json
 from pathlib import Path
+
+COLAB_TIP = (
+    "> 💡 **Mẹo khi mở bằng nút 'Open In Colab'**:\n"
+    "> - **Nếu repo ở chế độ Public:** Nhấp vào nút trên sẽ mở ngay notebook trên Google Colab.\n"
+    "> - **Nếu repo ở chế độ Private (hoặc gặp lỗi 404):** Mở [Google Colab](https://colab.research.google.com) → Chọn thẻ **GitHub** → Tích chọn **'Include private repositories'** và cấp quyền GitHub → Chọn repository `caoban123/Tool-Annotation-Sinonom` và nhánh `main` (hoặc chuyển repository sang chế độ **Public** trong GitHub Settings)."
+)
 
 def build_crawl_notebook():
     cells = [
@@ -18,6 +25,8 @@ def build_crawl_notebook():
                 "# Module 2 — Crawl & Trích Xuất Văn Bản (PDF Text & Web HTML)\n",
                 "\n",
                 "[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/caoban123/Tool-Annotation-Sinonom/blob/main/Crawl/notebooks/01_Crawl_Text.ipynb)\n",
+                "\n",
+                f"{COLAB_TIP}\n",
                 "\n",
                 "Notebook này thực hiện trích xuất dữ liệu từ các tài liệu số hóa đã chuẩn hóa:\n",
                 "- **Tự động kéo dữ liệu:** Tự động phát hiện và kéo tài liệu từ GitHub repo (`https://github.com/caoban123/CV01.git`) nếu chưa có sẵn local.\n",
@@ -41,11 +50,18 @@ def build_crawl_notebook():
                 "# Tự động phát hiện và khởi tạo nếu chạy trên Google Colab\n",
                 "if 'google.colab' in sys.modules:\n",
                 "    colab_repo = Path('/content/Tool-Annotation-Sinonom')\n",
-                "    if not colab_repo.exists():\n",
-                "        print('Đang clone repo Tool-Annotation-Sinonom trên Google Colab...')\n",
-                "        subprocess.run(['git', 'clone', 'https://github.com/caoban123/Tool-Annotation-Sinonom.git', str(colab_repo)], check=True)\n",
-                "    os.chdir(str(colab_repo))\n",
-                "    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'PyMuPDF', 'beautifulsoup4', 'pydantic'], check=False)\n",
+                "    if not colab_repo.exists() and not (Path('.').resolve() / 'Crawl').exists():\n",
+                "        print('Đang chuẩn bị môi trường trên Google Colab...')\n",
+                "        try:\n",
+                "            subprocess.run(['git', 'clone', '--depth', '1', 'https://github.com/caoban123/Tool-Annotation-Sinonom.git', str(colab_repo)], check=True, capture_output=True)\n",
+                "            print('✓ Đã nạp mã nguồn dự án thành công!')\n",
+                "        except Exception as e:\n",
+                "            print('⚠️ Lưu ý: Nếu repo ở chế độ Private, vui lòng cấp quyền GitHub hoặc tải thư mục dự án lên /content.')\n",
+                "    for candidate in [colab_repo, Path('/content'), Path('.')]:\n",
+                "        if (candidate / 'Crawl').exists():\n",
+                "            os.chdir(str(candidate))\n",
+                "            break\n",
+                "    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'pypdf', 'pypdfium2', 'beautifulsoup4', 'pydantic', 'requests'], check=False)\n",
                 "\n",
                 "# Tự động xác định thư mục gốc của repository\n",
                 "REPO_ROOT = Path('.').resolve()\n",
@@ -208,6 +224,8 @@ def build_ocr_han_notebook():
                 "\n",
                 "[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/caoban123/Tool-Annotation-Sinonom/blob/main/OCR/notebooks/01_OCR_Han.ipynb)\n",
                 "\n",
+                f"{COLAB_TIP}\n",
+                "\n",
                 "Notebook này thực hiện nhận dạng chữ Hán phồn thể/cổ từ PDF scan ảnh chụp:\n",
                 "- **Tự động kéo dữ liệu:** Kéo tài liệu từ `https://github.com/caoban123/CV01.git` nếu chạy trên Colab GPU.\n",
                 "- **Tự động nhận diện:** Soi xem PDF đã có sẵn text layer chưa; nếu là PDF Scan thì render ảnh và OCR.\n",
@@ -231,11 +249,18 @@ def build_ocr_han_notebook():
                 "# Tự động phát hiện và khởi tạo nếu chạy trên Google Colab\n",
                 "if 'google.colab' in sys.modules:\n",
                 "    colab_repo = Path('/content/Tool-Annotation-Sinonom')\n",
-                "    if not colab_repo.exists():\n",
-                "        print('Đang clone repo Tool-Annotation-Sinonom trên Google Colab...')\n",
-                "        subprocess.run(['git', 'clone', 'https://github.com/caoban123/Tool-Annotation-Sinonom.git', str(colab_repo)], check=True)\n",
-                "    os.chdir(str(colab_repo))\n",
-                "    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'PyMuPDF', 'pillow', 'pydantic'], check=False)\n",
+                "    if not colab_repo.exists() and not (Path('.').resolve() / 'OCR').exists():\n",
+                "        print('Đang chuẩn bị môi trường trên Google Colab...')\n",
+                "        try:\n",
+                "            subprocess.run(['git', 'clone', '--depth', '1', 'https://github.com/caoban123/Tool-Annotation-Sinonom.git', str(colab_repo)], check=True, capture_output=True)\n",
+                "            print('✓ Đã nạp mã nguồn dự án thành công!')\n",
+                "        except Exception as e:\n",
+                "            print('⚠️ Lưu ý: Nếu repo ở chế độ Private, vui lòng cấp quyền GitHub hoặc tải thư mục dự án lên /content.')\n",
+                "    for candidate in [colab_repo, Path('/content'), Path('.')]:\n",
+                "        if (candidate / 'OCR').exists():\n",
+                "            os.chdir(str(candidate))\n",
+                "            break\n",
+                "    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'pypdf', 'pypdfium2', 'pillow', 'pydantic', 'requests'], check=False)\n",
                 "    # Để chạy nhận diện với GPU nâng cao trên Colab, bạn có thể uncomment dòng sau:\n",
                 "    # subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'paddlepaddle-gpu', 'paddleocr'], check=False)\n",
                 "\n",
@@ -325,7 +350,7 @@ def build_ocr_han_notebook():
                 "    images = render_pdf_to_images(target_file, max_pages=3)\n",
                 "else:\n",
                 "    images = [Image.open(target_file)]\n",
-                "\n",
+                "    \n",
                 "source_id = f\"{work_info['ma_tac_pham']}_han\"\n",
                 "print(f\"Bắt đầu nhận dạng {len(images)} trang cho nguồn: {source_id}...\")\n",
                 "result = pipeline.process_images(images, source_id=source_id)\n",
@@ -376,6 +401,8 @@ def build_ocr_viet_notebook():
                 "\n",
                 "[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/caoban123/Tool-Annotation-Sinonom/blob/main/OCR/notebooks/02_OCR_Viet.ipynb)\n",
                 "\n",
+                f"{COLAB_TIP}\n",
+                "\n",
                 "Notebook này nhận dạng văn bản tiếng Việt từ bản dịch scan:\n",
                 "- **Tự động kéo dữ liệu:** Kéo từ GitHub `https://github.com/caoban123/CV01.git` nếu chạy trên Colab.\n",
                 "- **Tự động nhận diện:** Tự động phát hiện nếu bản dịch đã có sẵn text layer số hóa (PDF Text).\n",
@@ -399,11 +426,18 @@ def build_ocr_viet_notebook():
                 "# Tự động phát hiện và khởi tạo nếu chạy trên Google Colab\n",
                 "if 'google.colab' in sys.modules:\n",
                 "    colab_repo = Path('/content/Tool-Annotation-Sinonom')\n",
-                "    if not colab_repo.exists():\n",
-                "        print('Đang clone repo Tool-Annotation-Sinonom trên Google Colab...')\n",
-                "        subprocess.run(['git', 'clone', 'https://github.com/caoban123/Tool-Annotation-Sinonom.git', str(colab_repo)], check=True)\n",
-                "    os.chdir(str(colab_repo))\n",
-                "    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'PyMuPDF', 'pillow', 'pydantic'], check=False)\n",
+                "    if not colab_repo.exists() and not (Path('.').resolve() / 'OCR').exists():\n",
+                "        print('Đang chuẩn bị môi trường trên Google Colab...')\n",
+                "        try:\n",
+                "            subprocess.run(['git', 'clone', '--depth', '1', 'https://github.com/caoban123/Tool-Annotation-Sinonom.git', str(colab_repo)], check=True, capture_output=True)\n",
+                "            print('✓ Đã nạp mã nguồn dự án thành công!')\n",
+                "        except Exception as e:\n",
+                "            print('⚠️ Lưu ý: Nếu repo ở chế độ Private, vui lòng cấp quyền GitHub hoặc tải thư mục dự án lên /content.')\n",
+                "    for candidate in [colab_repo, Path('/content'), Path('.')]:\n",
+                "        if (candidate / 'OCR').exists():\n",
+                "            os.chdir(str(candidate))\n",
+                "            break\n",
+                "    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'pypdf', 'pypdfium2', 'pillow', 'pydantic', 'requests'], check=False)\n",
                 "\n",
                 "REPO_ROOT = Path('.').resolve()\n",
                 "while REPO_ROOT.name and not (REPO_ROOT / 'OCR').exists() and REPO_ROOT != REPO_ROOT.parent:\n",
@@ -529,8 +563,156 @@ def build_ocr_viet_notebook():
         json.dump(nb, f, ensure_ascii=False, indent=1)
     print("Built OCR/notebooks/02_OCR_Viet.ipynb")
 
+def build_semantic_alignment_notebook():
+    cells = [
+        {
+            "cell_type": "markdown",
+            "id": "align_intro",
+            "metadata": {},
+            "source": [
+                "# Module Bổ Trợ — Semantic Alignment (AI Gợi Ý Dóng Hàng Song Ngữ)\n",
+                "\n",
+                "[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/caoban123/Tool-Annotation-Sinonom/blob/main/Web/notebooks/01_Semantic_Alignment.ipynb)\n",
+                "\n",
+                f"{COLAB_TIP}\n",
+                "\n",
+                "Notebook này đọc gói phân đoạn `segments_export.json` do Web Studio xuất, áp dụng mô hình embedding (Qwen3-Embedding / LaBSE hoặc baseline sim) cùng thuật toán quy hoạch động đơn điệu để tìm gợi ý dóng hàng 1-1, 1-n, n-1, n-m.\n",
+                "Kết quả xuất ra file `suggestions.json` để nhập trở lại vào Web Studio."
+            ]
+        },
+        {
+            "cell_type": "code",
+            "id": "align_setup",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "# 1. Cài đặt và nạp thư viện\n",
+                "import os\n",
+                "import sys\n",
+                "import subprocess\n",
+                "from pathlib import Path\n",
+                "\n",
+                "# Tự động phát hiện và khởi tạo nếu chạy trên Google Colab\n",
+                "if 'google.colab' in sys.modules:\n",
+                "    colab_repo = Path('/content/Tool-Annotation-Sinonom')\n",
+                "    if not colab_repo.exists() and not (Path('.').resolve() / 'Web').exists():\n",
+                "        print('Đang chuẩn bị môi trường trên Google Colab...')\n",
+                "        try:\n",
+                "            subprocess.run(['git', 'clone', '--depth', '1', 'https://github.com/caoban123/Tool-Annotation-Sinonom.git', str(colab_repo)], check=True, capture_output=True)\n",
+                "            print('✓ Đã nạp mã nguồn dự án thành công!')\n",
+                "        except Exception as e:\n",
+                "            print('⚠️ Lưu ý: Nếu repo ở chế độ Private, vui lòng cấp quyền GitHub hoặc tải thư mục dự án lên /content.')\n",
+                "    for candidate in [colab_repo, Path('/content'), Path('.')]:\n",
+                "        if (candidate / 'Web').exists():\n",
+                "            os.chdir(str(candidate))\n",
+                "            break\n",
+                "    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'pydantic', 'sentence-transformers', 'torch'], check=False)\n",
+                "\n",
+                "REPO_ROOT = Path('.').resolve()\n",
+                "while REPO_ROOT.name and not (REPO_ROOT / 'Web').exists() and REPO_ROOT != REPO_ROOT.parent:\n",
+                "    REPO_ROOT = REPO_ROOT.parent\n",
+                "\n",
+                "if str(REPO_ROOT) not in sys.path:\n",
+                "    sys.path.insert(0, str(REPO_ROOT))\n",
+                "\n",
+                "from Web.ai.prepare_segments import load_segments_manifest, split_han_viet_segments\n",
+                "from Web.ai.candidate_generation import DeterministicSimAdapter, RealModelAdapter\n",
+                "from Web.ai.monotonic_alignment import align_segments_monotonic\n",
+                "from Web.ai.export_suggestions import create_suggestions_file\n",
+                "print('✓ Đã nạp module AI Semantic Alignment thành công!')"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "id": "align_config",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "# 2. Cấu hình đầu vào và lựa chọn mô hình\n",
+                "# Đường dẫn file segments tải về từ Web Studio\n",
+                "INPUT_SEGMENTS_PATH = 'data/segments_export.json'\n",
+                "MODEL_CHOICE = 'deterministic_baseline'  # Hoặc 'LaBSE', 'Qwen3-Embedding-0.6B'\n",
+                "OUTPUT_FILE = Path('data/suggestions.json')\n",
+                "\n",
+                "# Tạo fixture giả lập nếu chưa có file export từ Web\n",
+                "if not Path(INPUT_SEGMENTS_PATH).exists():\n",
+                "    Path('data').mkdir(parents=True, exist_ok=True)\n",
+                "    import json\n",
+                "    dummy_manifest = {\n",
+                "        'schema_version': '1.0',\n",
+                "        'project_id': 'proj_demo',\n",
+                "        'revision': 1,\n",
+                "        'source_sha256_han': 'abc123han',\n",
+                "        'source_sha256_viet': 'def456viet',\n",
+                "        'segments': [\n",
+                "            {'segment_id': 'h1', 'language': 'han', 'order_index': 0, 'text': '古南交，周號越裳。', 'active': True},\n",
+                "            {'segment_id': 'h2', 'language': 'han', 'order_index': 1, 'text': '秦始皇置象郡。', 'active': True},\n",
+                "            {'segment_id': 'v1', 'language': 'viet', 'order_index': 0, 'text': 'Đất Nam Giao xưa, nhà Chu gọi là Việt Thường.', 'active': True},\n",
+                "            {'segment_id': 'v2', 'language': 'viet', 'order_index': 1, 'text': 'Nhà Tần đặt quận Tượng.', 'active': True},\n",
+                "            {'segment_id': 'v3', 'language': 'viet', 'order_index': 2, 'text': 'Lại chia đặt các quan cai trị.', 'active': True}\n",
+                "        ]\n",
+                "    }\n",
+                "    with open(INPUT_SEGMENTS_PATH, 'w', encoding='utf-8') as f:\n",
+                "        json.dump(dummy_manifest, f, ensure_ascii=False, indent=2)\n",
+                "    print('✓ Đã tạo demo data/segments_export.json')"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "id": "align_run",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "# 3. Nạp phân đoạn và chạy tìm gợi ý dóng hàng\n",
+                "manifest = load_segments_manifest(INPUT_SEGMENTS_PATH)\n",
+                "han_segs, viet_segs = split_han_viet_segments(manifest)\n",
+                "\n",
+                "print(f'Tổng phân đoạn Hán:  {len(han_segs)}')\n",
+                "print(f'Tổng phân đoạn Việt: {len(viet_segs)}')\n",
+                "\n",
+                "if MODEL_CHOICE == 'deterministic_baseline':\n",
+                "    scorer = DeterministicSimAdapter()\n",
+                "else:\n",
+                "    scorer = RealModelAdapter(MODEL_CHOICE)\n",
+                "\n",
+                "suggestions = align_segments_monotonic(han_segs, viet_segs, scorer)\n",
+                "print(f'\\n✓ Đã tìm thấy {len(suggestions)} gợi ý dóng hàng!')\n",
+                "for s in suggestions[:5]:\n",
+                "    print(f\"  [{s['alignment_type']}] Score={s['score']:.2f} | Han: {s['han_ids']} <-> Viet: {s['viet_ids']}\")"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "id": "align_export",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "# 4. Xuất file suggestions.json đúng schema\n",
+                "res = create_suggestions_file(manifest, suggestions, model_name=MODEL_CHOICE, output_path=OUTPUT_FILE)\n",
+                "print(f'✓ Đã lưu gợi ý: {OUTPUT_FILE}')\n",
+                "print(f'✓ Tổng số gợi ý: {len(res[\"suggestions\"])}')\n",
+                "print('\\nSẵn sàng nhập suggestions.json vào Web Studio tại http://127.0.0.1:8000!')"
+            ]
+        }
+    ]
+
+    nb = {
+        "cells": cells,
+        "metadata": {"language_info": {"name": "python"}},
+        "nbformat": 4,
+        "nbformat_minor": 5
+    }
+    with open("Web/notebooks/01_Semantic_Alignment.ipynb", "w", encoding="utf-8") as f:
+        json.dump(nb, f, ensure_ascii=False, indent=1)
+    print("Built Web/notebooks/01_Semantic_Alignment.ipynb")
+
 if __name__ == "__main__":
     build_crawl_notebook()
     build_ocr_han_notebook()
     build_ocr_viet_notebook()
-    print("All notebooks built successfully!")
+    build_semantic_alignment_notebook()
+    print("All 4 notebooks built successfully!")
