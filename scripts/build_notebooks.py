@@ -245,6 +245,9 @@ def build_ocr_han_notebook():
             "source": [
                 "# 1. Khởi tạo môi trường Colab & Cài đặt AI PaddleOCR Thật\n",
                 "import os\n",
+                "os.environ['FLAGS_enable_pir_api'] = '0'\n",
+                "os.environ['FLAGS_use_onednn'] = '0'\n",
+                "os.environ['PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK'] = 'True'\n",
                 "import sys\n",
                 "import subprocess\n",
                 "from pathlib import Path\n",
@@ -438,6 +441,9 @@ def build_ocr_viet_notebook():
             "source": [
                 "# 1. Khởi tạo môi trường Colab & Cài đặt AI PaddleOCR Tiếng Việt\n",
                 "import os\n",
+                "os.environ['FLAGS_enable_pir_api'] = '0'\n",
+                "os.environ['FLAGS_use_onednn'] = '0'\n",
+                "os.environ['PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK'] = 'True'\n",
                 "import sys\n",
                 "import subprocess\n",
                 "from pathlib import Path\n",

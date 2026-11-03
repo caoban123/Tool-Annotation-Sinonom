@@ -1,5 +1,13 @@
 import time
 import os
+import sys
+
+# Tắt PIR executor và oneDNN không tương thích trong PaddlePaddle 3.x để tránh lỗi ConvertPirAttribute2RuntimeAttribute
+os.environ["FLAGS_enable_pir_api"] = "0"
+os.environ["FLAGS_use_onednn"] = "0"
+os.environ["FLAGS_enable_pir_in_executor"] = "0"
+os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
+
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from PIL import Image
@@ -21,14 +29,18 @@ class BaseOCREngine:
             from paddleocr import PaddleOCR
             lang = "ch" if "han" in self.model_name.lower() or "ch" in self.model_name.lower() else "vi"
             
-            # Khởi tạo tương thích đa phiên bản PaddleOCR (bản mới bỏ use_gpu)
+            # Khởi tạo tương thích đa phiên bản PaddleOCR:
+            # Ưu tiên PP-OCRv4 ổn định (tránh lỗi PIR instruction converter của PP-OCRv6 thử nghiệm)
             paddle_inst = None
-            for kwargs in [
+            candidate_configs = [
+                {"ocr_version": "PP-OCRv4", "use_angle_cls": True, "lang": lang, "show_log": False},
+                {"ocr_version": "PP-OCRv4", "lang": lang, "show_log": False},
+                {"ocr_version": "PP-OCRv3", "lang": lang, "show_log": False},
                 {"use_angle_cls": True, "lang": lang, "show_log": False},
-                {"lang": lang},
-                {"use_angle_cls": True, "lang": lang, "use_gpu": self.use_gpu, "show_log": False},
-                {"use_angle_cls": True, "lang": lang, "use_gpu": False, "show_log": False}
-            ]:
+                {"lang": lang}
+            ]
+
+            for kwargs in candidate_configs:
                 try:
                     paddle_inst = PaddleOCR(**kwargs)
                     break
@@ -39,7 +51,7 @@ class BaseOCREngine:
                 paddle_inst = PaddleOCR()
 
             self.paddle = paddle_inst
-            self.engine_type = f"paddleocr_official (lang={lang})"
+            self.engine_type = f"paddleocr_official (model=PP-OCRv4, lang={lang})"
             print(f"[OCR Engine] ✓ Đã nạp thành công mô hình AI PaddleOCR thật ({self.engine_type})")
         except Exception as e:
             # Fallback to local CPU test adapter
@@ -55,10 +67,15 @@ class BaseOCREngine:
         if not self.is_mock and self.paddle is not None:
             import numpy as np
             img_arr = np.array(image.convert("RGB"))
-            try:
-                raw_res = self.paddle.ocr(img_arr, cls=True)
-            except Exception:
-                raw_res = self.paddle.ocr(img_arr)
+            raw_res = None
+            
+            for call_kwargs in [{"cls": True}, {}]:
+                try:
+                    raw_res = self.paddle.ocr(img_arr, **call_kwargs)
+                    break
+                except Exception as call_err:
+                    continue
+
             boxes = []
             if raw_res and raw_res[0]:
                 for item in raw_res[0]:
