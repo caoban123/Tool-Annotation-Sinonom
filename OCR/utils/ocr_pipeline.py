@@ -21,12 +21,16 @@ class BaseOCREngine:
             from paddleocr import PaddleOCR
             lang = "ch" if "han" in self.model_name.lower() or "ch" in self.model_name.lower() else "vi"
             self.paddle = PaddleOCR(use_angle_cls=True, lang=lang, use_gpu=self.use_gpu, show_log=False)
-            self.engine_type = "paddleocr_official"
-        except Exception:
+            self.engine_type = f"paddleocr_official (lang={lang}, gpu={self.use_gpu})"
+            print(f"[OCR Engine] ✓ Đã khởi tạo mô hình AI PaddleOCR thật ({self.engine_type})")
+        except Exception as e:
             # Fallback to local CPU test adapter
             self.paddle = None
             self.is_mock = True
-            self.engine_type = "cpu_test_adapter (PaddleOCR not installed in local environment)"
+            self.engine_type = "cpu_test_adapter (PaddleOCR chưa được cài đặt trong môi trường)"
+            print(f"[OCR Engine] ⚠️ CHÚ Ý: Đang chạy ở chế độ MOCK TEST ADAPTER (Dữ liệu giả lập mẫu).")
+            print(f"            Lý do: Chưa cài đặt thư viện 'paddleocr' ({e}).")
+            print(f"            Để chạy AI thật, hãy cài đặt: pip install paddlepaddle paddleocr")
 
     def recognize_image(self, image: Image.Image) -> List[Dict[str, Any]]:
         """Recognizes text lines and bboxes from a PIL Image."""
