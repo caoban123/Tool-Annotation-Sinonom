@@ -6,113 +6,145 @@
 <div class="flex-1 flex flex-col h-full overflow-hidden bg-slate-100" id="app" data-project-id="{{ project.id }}">
 
   <!-- Sticky Top Control Bar -->
-  <div class="bg-white border-b border-slate-200 px-4 py-2.5 shadow-sm z-20 flex flex-wrap items-center justify-between gap-3">
-    <!-- Left: Filters & Search -->
-    <div class="flex items-center space-x-2">
-      <div class="relative">
-        <input type="text" id="searchInput" placeholder="Tìm kiếm text / ID... (Ctrl+K)" 
-          class="pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg w-56 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-sans">
-        <svg class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-      </div>
+  <div class="bg-white border-b border-slate-200 px-4 py-2 shadow-xs z-20 flex flex-col space-y-2">
+    <!-- Top Row: Search, Filters & Action Tools -->
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <!-- Left: Filters & Search -->
+      <div class="flex items-center space-x-2.5">
+        <div class="relative">
+          <input type="text" id="searchInput" placeholder="Tìm kiếm câu / ID... (Ctrl+K)" 
+            class="pl-8 pr-7 py-1.5 text-xs bg-slate-50 hover:bg-white focus:bg-white border border-slate-300 rounded-lg w-60 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 font-sans transition">
+          <svg class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+          <button id="clearSearchBtn" onclick="clearSearch()" class="hidden absolute right-2 top-2 text-slate-400 hover:text-slate-600 text-xs font-bold">&times;</button>
+        </div>
 
-      <div class="flex bg-slate-100 p-0.5 rounded-lg text-xs font-medium text-slate-600">
-        <button onclick="setFilter('all')" id="filter-all" class="filter-btn px-2.5 py-1 rounded bg-white text-slate-800 shadow-xs">Tất cả</button>
-        <button onclick="setFilter('unassigned')" id="filter-unassigned" class="filter-btn px-2.5 py-1 rounded hover:text-slate-900">Chưa gán</button>
-        <button onclick="setFilter('confirmed')" id="filter-confirmed" class="filter-btn px-2.5 py-1 rounded hover:text-slate-900">Đã gán</button>
-        <button onclick="setFilter('needs_review')" id="filter-needs_review" class="filter-btn px-2.5 py-1 rounded hover:text-slate-900">Cần duyệt</button>
-        <button onclick="setFilter('suggested')" id="filter-suggested" class="filter-btn px-2.5 py-1 rounded hover:text-slate-900">Gợi ý AI</button>
-      </div>
-    </div>
-
-    <!-- Center: Live Alignment Preview & Confirm Action -->
-    <div class="flex items-center space-x-3 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg flex-1 max-w-2xl justify-between">
-      <div class="flex items-center space-x-2 overflow-hidden text-xs">
-        <span id="cardinalityBadge" class="px-2 py-0.5 rounded font-mono font-bold bg-slate-200 text-slate-700">0–0</span>
-        <div class="truncate max-w-md text-slate-600" id="previewText">
-          <em>Chọn phân đoạn Hán và Việt liền kề để dóng hàng...</em>
+        <!-- Filter Segmented Control -->
+        <div class="flex bg-slate-100/90 p-0.5 rounded-lg text-xs font-medium text-slate-600 border border-slate-200/60">
+          <button onclick="setFilter('all')" id="filter-all" class="filter-btn px-2.5 py-1 rounded-md bg-white text-slate-900 shadow-xs font-semibold">Tất cả</button>
+          <button onclick="setFilter('unassigned')" id="filter-unassigned" class="filter-btn px-2.5 py-1 rounded-md hover:text-slate-900 transition">Chưa gán</button>
+          <button onclick="setFilter('confirmed')" id="filter-confirmed" class="filter-btn px-2.5 py-1 rounded-md hover:text-slate-900 transition">Đã gán</button>
+          <button onclick="setFilter('needs_review')" id="filter-needs_review" class="filter-btn px-2.5 py-1 rounded-md hover:text-slate-900 transition">Cần duyệt</button>
+          <button onclick="setFilter('suggested')" id="filter-suggested" class="filter-btn px-2.5 py-1 rounded-md hover:text-slate-900 transition">Gợi ý AI</button>
         </div>
       </div>
 
-      <div class="flex items-center space-x-2 flex-shrink-0">
-        <button id="btnConfirm" onclick="confirmAlignment()" disabled
-          class="px-3 py-1 bg-emerald-600 disabled:bg-slate-300 disabled:cursor-not-allowed hover:bg-emerald-700 text-white rounded font-medium text-xs shadow-xs transition flex items-center space-x-1">
-          <span>Xác nhận</span>
-          <kbd class="text-[10px] bg-emerald-800/40 px-1 rounded">Ctrl+Enter</kbd>
+      <!-- Right: Undo, AI tools, Shortcuts & Status -->
+      <div class="flex items-center space-x-2">
+        <!-- Progress Counter -->
+        <div class="hidden sm:flex items-center space-x-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-semibold">
+          <svg class="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+          <span id="alignProgressText">Đang tải...</span>
+        </div>
+
+        <button onclick="undoAlignment()" title="Hoàn tác cặp vừa dóng (Ctrl+Z)"
+          class="px-2.5 py-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold flex items-center space-x-1 transition shadow-xs">
+          <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg>
+          <span>Hoàn tác</span>
+          <kbd class="text-[10px] bg-slate-100 text-slate-500 px-1 py-0.2 rounded border border-slate-200">Ctrl+Z</kbd>
         </button>
-        <button id="btnUnconfirm" onclick="unconfirmSelected()" style="display: none;"
-          class="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded font-medium text-xs shadow-xs transition flex items-center space-x-1">
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-          <span>Hủy xác nhận</span>
+
+        <button onclick="document.getElementById('aiSuggestionsModal').classList.remove('hidden')"
+          class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 hover:bg-purple-100 text-purple-700 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition shadow-xs">
+          <svg class="w-3.5 h-3.5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+          <span>Gợi ý AI</span>
         </button>
-        <button onclick="clearSelection()" title="Bỏ chọn (Esc)" class="px-2 py-1 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded text-xs">
-          Hủy (Esc)
+
+        <button onclick="document.getElementById('shortcutsModal').classList.remove('hidden')" title="Xem danh sách phím tắt"
+          class="px-2 py-1.5 border border-slate-200 hover:bg-slate-100 text-slate-600 rounded-lg text-xs font-semibold flex items-center space-x-1 transition" aria-label="Phím tắt">
+          <span class="font-mono text-xs font-bold">?</span>
         </button>
+
+        <span id="saveStatus" class="text-[11px] text-emerald-700 font-semibold flex items-center space-x-1 pl-1">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+          <span>Đã lưu DB</span>
+        </span>
       </div>
     </div>
 
-    <!-- Right: Undo & AI suggestions tools -->
-    <div class="flex items-center space-x-2">
-      <button onclick="undoAlignment()" title="Hoàn tác cặp vừa dóng (Ctrl+Z)"
-        class="px-2.5 py-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-medium flex items-center space-x-1">
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg>
-        <span>Hoàn tác</span>
-      </button>
+    <!-- Bottom Row: Dynamic Live Alignment Ribbon -->
+    <div class="flex items-center justify-between bg-gradient-to-r from-slate-50 via-white to-slate-50 border border-slate-200 px-3.5 py-2 rounded-xl shadow-xs">
+      <!-- Live Preview Content -->
+      <div class="flex items-center space-x-3 overflow-hidden flex-1 mr-3">
+        <span id="cardinalityBadge" class="px-2.5 py-1 rounded-md font-mono font-bold text-xs bg-slate-200 text-slate-700 transition">0–0</span>
+        <div class="truncate text-xs text-slate-600" id="previewText">
+          <span class="italic text-slate-400">Chọn 1 hoặc nhiều phân đoạn Hán và Việt liền kề để dóng hàng...</span>
+        </div>
+      </div>
 
-      <button onclick="document.getElementById('aiSuggestionsModal').classList.remove('hidden')"
-        class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 hover:bg-purple-100 text-purple-700 rounded-lg text-xs font-medium flex items-center space-x-1">
-        <svg class="w-3.5 h-3.5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-        <span>Gợi ý AI</span>
-      </button>
+      <!-- Action Buttons for Current Selection -->
+      <div class="flex items-center space-x-2 flex-shrink-0">
+        <button id="btnConfirm" onclick="confirmAlignment()" disabled
+          class="px-4 py-1.5 bg-emerald-600 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed hover:bg-emerald-700 text-white rounded-lg font-bold text-xs shadow-xs transition flex items-center space-x-1.5">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+          <span>Xác Nhận Dóng Hàng</span>
+          <kbd class="text-[10px] bg-emerald-800/40 text-emerald-100 px-1 py-0.5 rounded">Ctrl+Enter</kbd>
+        </button>
 
-      <span id="saveStatus" class="text-[11px] text-emerald-700 font-medium flex items-center space-x-1 pl-1">
-        <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
-        <span>Đã lưu</span>
-      </span>
+        <button id="btnUnconfirm" onclick="unconfirmSelected()" style="display: none;"
+          class="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-xs shadow-xs transition flex items-center space-x-1">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+          <span>Hủy xác nhận</span>
+        </button>
+
+        <button onclick="clearSelection()" title="Bỏ chọn (Esc)" class="px-2.5 py-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded-lg text-xs font-semibold transition">
+          Bỏ chọn (Esc)
+        </button>
+      </div>
     </div>
   </div>
 
   <!-- Two-Column Workspace Container -->
-  <div class="flex-1 grid grid-cols-2 gap-px bg-slate-200 overflow-hidden">
+  <div class="flex-1 grid grid-cols-2 gap-px bg-slate-300 overflow-hidden">
 
     <!-- Column 1: Hán Văn -->
-    <div class="flex flex-col bg-slate-50 h-full overflow-hidden">
-      <div class="bg-blue-50/70 border-b border-blue-200 px-4 py-2 flex items-center justify-between">
+    <div class="flex flex-col bg-slate-50/80 h-full overflow-hidden">
+      <!-- Column Header -->
+      <div class="bg-gradient-to-r from-sky-50 via-blue-50 to-indigo-50/60 border-b border-sky-200/80 px-4 py-2.5 flex items-center justify-between shadow-xs">
         <div class="flex items-center space-x-2">
-          <span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
-          <h2 class="font-bold text-sm text-blue-900">Văn Bản Hán</h2>
-          <span id="hanCount" class="text-xs text-blue-700 font-mono font-medium">(0)</span>
+          <span class="w-2.5 h-2.5 rounded-full bg-sky-600 ring-2 ring-sky-200"></span>
+          <h2 class="font-bold text-sm text-sky-950 font-cjk tracking-wide">Văn Bản Chữ Hán / Nôm</h2>
+          <span id="hanCount" class="text-xs px-2 py-0.5 bg-sky-100 text-sky-800 rounded-full font-mono font-bold">(0)</span>
         </div>
-        <div class="flex space-x-1">
-          <button onclick="promptMergeSegments('han')" class="px-2 py-0.5 text-xs bg-white border border-blue-200 text-blue-800 rounded hover:bg-blue-50">
-            Gộp các đoạn chọn
+        <div class="flex items-center space-x-2">
+          <button onclick="jumpToNextUnassigned('han')" title="Nhảy tới ô Hán chưa gán tiếp theo" class="px-2.5 py-1 text-xs bg-white hover:bg-sky-50 border border-sky-200 text-sky-800 font-semibold rounded-lg shadow-xs transition flex items-center space-x-1">
+            <svg class="w-3 h-3 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg>
+            <span>Tới ô chưa gán</span>
+          </button>
+          <button onclick="promptMergeSegments('han')" title="Gộp các ô Hán đang chọn thành 1 ô" class="px-2.5 py-1 text-xs bg-white hover:bg-sky-50 border border-sky-200 text-sky-800 font-semibold rounded-lg shadow-xs transition">
+            Gộp các ô chọn
           </button>
         </div>
       </div>
 
-      <div id="hanColumn" class="flex-1 overflow-y-auto p-4 space-y-2.5 font-cjk">
-        <!-- Rendered dynamically -->
-        <div class="text-center py-12 text-slate-400 text-sm">Đang tải phân đoạn Hán...</div>
+      <!-- Segment Cards Scroll Container -->
+      <div id="hanColumn" class="flex-1 overflow-y-auto p-4 space-y-3 font-cjk">
+        <div class="text-center py-16 text-slate-400 text-sm">Đang tải phân đoạn Hán...</div>
       </div>
     </div>
 
     <!-- Column 2: Việt Văn -->
-    <div class="flex flex-col bg-slate-50 h-full overflow-hidden">
-      <div class="bg-rose-50/70 border-b border-rose-200 px-4 py-2 flex items-center justify-between">
+    <div class="flex flex-col bg-slate-50/80 h-full overflow-hidden">
+      <!-- Column Header -->
+      <div class="bg-gradient-to-r from-rose-50 via-pink-50 to-red-50/60 border-b border-rose-200/80 px-4 py-2.5 flex items-center justify-between shadow-xs">
         <div class="flex items-center space-x-2">
-          <span class="w-2.5 h-2.5 rounded-full bg-rose-600"></span>
-          <h2 class="font-bold text-sm text-rose-900">Văn Bản Việt</h2>
-          <span id="vietCount" class="text-xs text-rose-700 font-mono font-medium">(0)</span>
+          <span class="w-2.5 h-2.5 rounded-full bg-rose-600 ring-2 ring-rose-200"></span>
+          <h2 class="font-bold text-sm text-rose-950 font-sans tracking-tight">Văn Bản Dịch Tiếng Việt</h2>
+          <span id="vietCount" class="text-xs px-2 py-0.5 bg-rose-100 text-rose-800 rounded-full font-mono font-bold">(0)</span>
         </div>
-        <div class="flex space-x-1">
-          <button onclick="promptMergeSegments('viet')" class="px-2 py-0.5 text-xs bg-white border border-rose-200 text-rose-800 rounded hover:bg-rose-50">
-            Gộp các đoạn chọn
+        <div class="flex items-center space-x-2">
+          <button onclick="jumpToNextUnassigned('viet')" title="Nhảy tới ô Việt chưa gán tiếp theo" class="px-2.5 py-1 text-xs bg-white hover:bg-rose-50 border border-rose-200 text-rose-800 font-semibold rounded-lg shadow-xs transition flex items-center space-x-1">
+            <svg class="w-3 h-3 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg>
+            <span>Tới ô chưa gán</span>
+          </button>
+          <button onclick="promptMergeSegments('viet')" title="Gộp các ô Việt đang chọn thành 1 ô" class="px-2.5 py-1 text-xs bg-white hover:bg-rose-50 border border-rose-200 text-rose-800 font-semibold rounded-lg shadow-xs transition">
+            Gộp các ô chọn
           </button>
         </div>
       </div>
 
-      <div id="vietColumn" class="flex-1 overflow-y-auto p-4 space-y-2.5 font-sans">
-        <!-- Rendered dynamically -->
-        <div class="text-center py-12 text-slate-400 text-sm">Đang tải phân đoạn Việt...</div>
+      <!-- Segment Cards Scroll Container -->
+      <div id="vietColumn" class="flex-1 overflow-y-auto p-4 space-y-3 font-sans">
+        <div class="text-center py-16 text-slate-400 text-sm">Đang tải phân đoạn Việt...</div>
       </div>
     </div>
 
@@ -122,58 +154,113 @@
 
 <!-- Modal: Sửa Phân Đoạn -->
 <div id="editSegmentModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-  <div class="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 border border-slate-200">
-    <h3 class="text-base font-bold text-slate-900 pb-2 border-b border-slate-100">Sửa Nội Dung Phân Đoạn</h3>
+  <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 animate-toast">
+    <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+      <h3 class="text-base font-bold text-slate-900 flex items-center space-x-2">
+        <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+        <span>Sửa Nội Dung Phân Đoạn</span>
+      </h3>
+      <button onclick="document.getElementById('editSegmentModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600 text-lg font-bold">&times;</button>
+    </div>
     <input type="hidden" id="edit_seg_id">
     <div class="mt-4">
-      <label class="block text-xs font-semibold text-slate-700 mb-1">Nội dung câu:</label>
-      <textarea id="edit_seg_text" rows="4" class="w-full p-2.5 border border-slate-300 rounded text-sm focus:ring-emerald-500 focus:border-emerald-500"></textarea>
+      <label class="block text-xs font-semibold text-slate-700 mb-1.5">Nội dung câu / phân đoạn:</label>
+      <textarea id="edit_seg_text" rows="5" class="w-full p-3 border border-slate-300 rounded-xl text-sm leading-relaxed focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"></textarea>
     </div>
-    <div class="flex justify-end space-x-2 mt-4 pt-3 border-t border-slate-100">
-      <button onclick="document.getElementById('editSegmentModal').classList.add('hidden')" class="px-3 py-1.5 border border-slate-300 rounded text-xs">Hủy</button>
-      <button onclick="submitEditSegment()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-medium">Lưu Thay Đổi</button>
+    <div class="flex justify-end space-x-2 mt-5 pt-3 border-t border-slate-100">
+      <button onclick="document.getElementById('editSegmentModal').classList.add('hidden')" class="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 transition">Hủy</button>
+      <button onclick="submitEditSegment()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition">Lưu Thay Đổi</button>
     </div>
   </div>
 </div>
 
 <!-- Modal: Tách Phân Đoạn -->
 <div id="splitSegmentModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-  <div class="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 border border-slate-200">
-    <h3 class="text-base font-bold text-slate-900 pb-2 border-b border-slate-100">Tách Phân Đoạn</h3>
-    <input type="hidden" id="split_seg_id">
-    <p class="text-xs text-slate-500 mt-2">Nhập mỗi câu/phần tách trên một dòng:</p>
-    <div class="mt-2">
-      <textarea id="split_seg_texts" rows="5" class="w-full p-2.5 border border-slate-300 rounded text-sm focus:ring-emerald-500 focus:border-emerald-500"></textarea>
+  <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 animate-toast">
+    <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+      <h3 class="text-base font-bold text-slate-900 flex items-center space-x-2">
+        <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"></path></svg>
+        <span>Tách Phân Đoạn Thành Nhiều Câu</span>
+      </h3>
+      <button onclick="document.getElementById('splitSegmentModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600 text-lg font-bold">&times;</button>
     </div>
-    <div class="flex justify-end space-x-2 mt-4 pt-3 border-t border-slate-100">
-      <button onclick="document.getElementById('splitSegmentModal').classList.add('hidden')" class="px-3 py-1.5 border border-slate-300 rounded text-xs">Hủy</button>
-      <button onclick="submitSplitSegment()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-medium">Thực Hiện Tách</button>
+    <input type="hidden" id="split_seg_id">
+    <p class="text-xs text-slate-500 mt-3 leading-relaxed">Nhập hoặc chia mỗi câu / đoạn con trên một dòng riêng biệt:</p>
+    <div class="mt-2">
+      <textarea id="split_seg_texts" rows="6" class="w-full p-3 border border-slate-300 rounded-xl text-sm leading-relaxed focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"></textarea>
+    </div>
+    <div class="flex justify-end space-x-2 mt-5 pt-3 border-t border-slate-100">
+      <button onclick="document.getElementById('splitSegmentModal').classList.add('hidden')" class="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 transition">Hủy</button>
+      <button onclick="submitSplitSegment()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition">Thực Hiện Tách</button>
     </div>
   </div>
 </div>
 
 <!-- Modal: Gợi Ý AI -->
 <div id="aiSuggestionsModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-  <div class="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 border border-slate-200">
-    <h3 class="text-base font-bold text-purple-900 pb-2 border-b border-slate-100 flex items-center space-x-2">
-      <span>Tải Lên File Gợi Ý AI (suggestions.json)</span>
-    </h3>
+  <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 animate-toast">
+    <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+      <h3 class="text-base font-bold text-purple-900 flex items-center space-x-2">
+        <svg class="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+        <span>Nhập Gợi Ý Dóng Hàng AI (suggestions.json)</span>
+      </h3>
+      <button onclick="document.getElementById('aiSuggestionsModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600 text-lg font-bold">&times;</button>
+    </div>
     <div class="mt-4 space-y-3">
-      <p class="text-xs text-slate-600">
-        File <code>suggestions.json</code> do Semantic Alignment notebook sinh ra. Hệ thống sẽ kiểm tra hash nguồn để đảm bảo tính toàn vẹn.
+      <p class="text-xs text-slate-600 leading-relaxed">
+        File <code>suggestions.json</code> do Semantic Alignment notebook (Colab / Jupyter) sinh ra bằng model LaBSE / PhoBERT. Hệ thống sẽ tự động xác thực SHA-256 để chống lệch nguồn.
       </p>
-      <div>
-        <input type="file" id="ai_suggestions_file" accept=".json" class="w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100">
+      <div class="p-4 bg-purple-50/50 border border-purple-200 rounded-xl">
+        <input type="file" id="ai_suggestions_file" accept=".json" class="w-full text-xs text-slate-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-purple-600 file:text-white hover:file:bg-purple-700 cursor-pointer">
       </div>
-      <div class="pt-2">
-        <a href="/api/suggestions/export-segments?project_id={{ project.id }}" target="_blank" class="text-xs text-blue-600 hover:underline">
-          &darr; Tải segments.jsonl hiện tại để đưa vào Colab/Jupyter Notebook
+      <div class="pt-1">
+        <a href="/api/suggestions/export-segments?project_id={{ project.id }}" target="_blank" class="inline-flex items-center space-x-1 text-xs text-blue-600 hover:text-blue-800 font-semibold hover:underline">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+          <span>Tải segments.jsonl hiện tại để đưa vào Colab</span>
         </a>
       </div>
     </div>
     <div class="flex justify-end space-x-2 mt-5 pt-3 border-t border-slate-100">
-      <button onclick="document.getElementById('aiSuggestionsModal').classList.add('hidden')" class="px-3 py-1.5 border border-slate-300 rounded text-xs">Đóng</button>
-      <button onclick="submitAiSuggestions()" class="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs font-medium">Nhập Gợi Ý</button>
+      <button onclick="document.getElementById('aiSuggestionsModal').classList.add('hidden')" class="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 transition">Đóng</button>
+      <button onclick="submitAiSuggestions()" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold shadow-xs transition">Nhập Gợi Ý Vào Hệ Thống</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Bảng Tra Cứu Phím Tắt (Keyboard Shortcuts) -->
+<div id="shortcutsModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 animate-toast">
+    <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+      <h3 class="text-base font-bold text-slate-900 flex items-center space-x-2">
+        <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
+        <span>Phím Tắt Thao Tác Nhanh</span>
+      </h3>
+      <button onclick="document.getElementById('shortcutsModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600 text-lg font-bold">&times;</button>
+    </div>
+    <div class="mt-4 space-y-2.5 text-xs">
+      <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100">
+        <span class="text-slate-700 font-medium">Xác nhận dóng cặp đang chọn:</span>
+        <kbd class="px-2 py-1 bg-white border border-slate-300 rounded font-mono font-bold text-slate-800 shadow-2xs">Ctrl + Enter</kbd>
+      </div>
+      <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100">
+        <span class="text-slate-700 font-medium">Hoàn tác cặp dóng vừa thực hiện:</span>
+        <kbd class="px-2 py-1 bg-white border border-slate-300 rounded font-mono font-bold text-slate-800 shadow-2xs">Ctrl + Z</kbd>
+      </div>
+      <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100">
+        <span class="text-slate-700 font-medium">Bỏ chọn các ô đang đánh dấu:</span>
+        <kbd class="px-2 py-1 bg-white border border-slate-300 rounded font-mono font-bold text-slate-800 shadow-2xs">Esc</kbd>
+      </div>
+      <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100">
+        <span class="text-slate-700 font-medium">Tìm kiếm câu / phân đoạn:</span>
+        <kbd class="px-2 py-1 bg-white border border-slate-300 rounded font-mono font-bold text-slate-800 shadow-2xs">Ctrl + K</kbd>
+      </div>
+      <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100">
+        <span class="text-slate-700 font-medium">Chọn một dải ô liên tục:</span>
+        <span class="font-mono font-semibold text-slate-800"><kbd class="px-1.5 py-0.5 bg-white border border-slate-300 rounded shadow-2xs">Shift</kbd> + Click ô</span>
+      </div>
+    </div>
+    <div class="flex justify-end mt-5 pt-3 border-t border-slate-100">
+      <button onclick="document.getElementById('shortcutsModal').classList.add('hidden')" class="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-semibold">Đã Hiểu</button>
     </div>
   </div>
 </div>
@@ -182,3 +269,4 @@
 {% block scripts %}
 <script src="/static/workspace.js"></script>
 {% endblock %}
+

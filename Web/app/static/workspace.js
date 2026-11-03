@@ -1,4 +1,4 @@
-// Workspace Application Logic
+// Han–Viet Alignment Studio — Workspace Application Logic
 const projectId = document.getElementById('app').dataset.projectId;
 
 let hanSegments = [];
@@ -33,8 +33,15 @@ async function loadWorkspaceData() {
     hanSegments = allSegs.filter(s => s.language === 'han');
     vietSegments = allSegs.filter(s => s.language === 'viet');
 
-    document.getElementById('hanCount').innerText = `(${hanSegments.length})`;
-    document.getElementById('vietCount').innerText = `(${vietSegments.length})`;
+    const hanCountEl = document.getElementById('hanCount');
+    const vietCountEl = document.getElementById('vietCount');
+    if (hanCountEl) hanCountEl.innerText = `(${hanSegments.length})`;
+    if (vietCountEl) vietCountEl.innerText = `(${vietSegments.length})`;
+
+    const progressEl = document.getElementById('alignProgressText');
+    if (progressEl) {
+      progressEl.innerText = `Đã dóng: ${alignments.length} cặp`;
+    }
 
     renderColumns();
     updateSelectionPreview();
@@ -42,6 +49,7 @@ async function loadWorkspaceData() {
   } catch (err) {
     showSaveStatus('Lỗi tải', 'rose');
     console.error(err);
+    if (window.showToast) window.showToast(err.message, 'error');
   }
 }
 
@@ -54,19 +62,19 @@ function showSaveStatus(text, color) {
     rose: 'text-rose-700 bg-rose-500'
   };
   const parts = (colors[color] || colors.emerald).split(' ');
-  el.className = `text-[11px] font-medium flex items-center space-x-1 pl-1 ${parts[0]}`;
+  el.className = `text-[11px] font-semibold flex items-center space-x-1 pl-1 ${parts[0]}`;
   el.innerHTML = `<span class="w-2 h-2 rounded-full ${parts[1]} inline-block"></span><span>${text}</span>`;
 }
 
 function setFilter(filter) {
   currentFilter = filter;
   document.querySelectorAll('.filter-btn').forEach(b => {
-    b.classList.remove('bg-white', 'text-slate-800', 'shadow-xs');
+    b.classList.remove('bg-white', 'text-slate-900', 'shadow-xs', 'font-semibold');
     b.classList.add('text-slate-600');
   });
   const activeBtn = document.getElementById(`filter-${filter}`);
   if (activeBtn) {
-    activeBtn.classList.add('bg-white', 'text-slate-800', 'shadow-xs');
+    activeBtn.classList.add('bg-white', 'text-slate-900', 'shadow-xs', 'font-semibold');
     activeBtn.classList.remove('text-slate-600');
   }
   renderColumns();
@@ -74,12 +82,25 @@ function setFilter(filter) {
 
 function setupSearch() {
   const input = document.getElementById('searchInput');
+  const clearBtn = document.getElementById('clearSearchBtn');
   if (input) {
     input.addEventListener('input', (e) => {
       searchQuery = e.target.value.toLowerCase().trim();
+      if (clearBtn) {
+        clearBtn.classList.toggle('hidden', searchQuery.length === 0);
+      }
       renderColumns();
     });
   }
+}
+
+function clearSearch() {
+  const input = document.getElementById('searchInput');
+  const clearBtn = document.getElementById('clearSearchBtn');
+  if (input) input.value = '';
+  if (clearBtn) clearBtn.classList.add('hidden');
+  searchQuery = '';
+  renderColumns();
 }
 
 function renderColumns() {
@@ -88,6 +109,7 @@ function renderColumns() {
 }
 
 function renderSide(side, segments, container, selectedSet) {
+  if (!container) return;
   container.innerHTML = '';
 
   const filtered = segments.filter(seg => {
@@ -105,7 +127,11 @@ function renderSide(side, segments, container, selectedSet) {
   });
 
   if (filtered.length === 0) {
-    container.innerHTML = `<div class="text-center py-10 text-slate-400 text-xs italic">Không có phân đoạn nào phù hợp.</div>`;
+    container.innerHTML = `
+      <div class="text-center py-16 px-4 bg-white/60 rounded-xl border border-dashed border-slate-300">
+        <svg class="w-8 h-8 mx-auto text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+        <p class="text-slate-500 font-medium text-xs">Không có phân đoạn nào trong bộ lọc này.</p>
+      </div>`;
     return;
   }
 
@@ -115,20 +141,22 @@ function renderSide(side, segments, container, selectedSet) {
 
     const statusBadge = getStatusBadge(seg.alignment_status);
 
-    let borderClass = 'border-slate-200 hover:border-slate-300 bg-white';
+    let cardClasses = 'rounded-xl border transition-all duration-150 cursor-pointer select-none relative group ';
     if (isSelected) {
-      borderClass = side === 'han' 
-        ? 'border-blue-500 bg-blue-50/70 ring-1 ring-blue-500 shadow-sm'
-        : 'border-rose-500 bg-rose-50/70 ring-1 ring-rose-500 shadow-sm';
+      cardClasses += side === 'han' 
+        ? 'border-sky-500 bg-sky-50/90 ring-2 ring-sky-400 shadow-md p-3.5'
+        : 'border-rose-500 bg-rose-50/90 ring-2 ring-rose-400 shadow-md p-3.5';
     } else if (seg.alignment_status === 'confirmed') {
-      borderClass = 'border-emerald-200 bg-emerald-50/20';
+      cardClasses += 'border-emerald-200 bg-emerald-50/30 hover:border-emerald-300 hover:shadow-xs p-3.5';
     } else if (seg.alignment_status === 'needs_review') {
-      borderClass = 'border-amber-300 bg-amber-50/30';
+      cardClasses += 'border-amber-300 bg-amber-50/30 hover:border-amber-400 hover:shadow-xs p-3.5';
     } else if (seg.alignment_status === 'suggested') {
-      borderClass = 'border-purple-200 bg-purple-50/20';
+      cardClasses += 'border-purple-200 bg-purple-50/30 hover:border-purple-300 hover:shadow-xs p-3.5';
+    } else {
+      cardClasses += 'border-slate-200 hover:border-slate-300 bg-white hover:shadow-xs p-3.5';
     }
 
-    card.className = `p-3 rounded-lg border text-xs cursor-pointer transition select-none ${borderClass}`;
+    card.className = cardClasses;
     card.id = `card_${seg.id}`;
 
     // Click handler for multi-select
@@ -138,27 +166,59 @@ function renderSide(side, segments, container, selectedSet) {
       handleSegmentClick(side, seg, e.shiftKey);
     };
 
+    const isHan = (side === 'han');
+    const indexBadgeClass = isHan
+      ? 'bg-sky-100 text-sky-800 border-sky-200'
+      : 'bg-rose-100 text-rose-800 border-rose-200';
+
     card.innerHTML = `
-      <div class="flex items-center justify-between pb-1.5 border-b border-slate-100">
-        <div class="flex items-center space-x-1.5">
-          <span class="font-mono text-[10px] text-slate-400 font-semibold">#${seg.order_index}</span>
-          <span class="font-mono text-[10px] text-slate-500">${seg.id.split('_').slice(-2).join('_')}</span>
+      <!-- Top Card Header -->
+      <div class="flex items-center justify-between pb-2 border-b border-slate-100/90">
+        <div class="flex items-center space-x-2">
+          <span class="font-mono text-[11px] font-bold px-2 py-0.5 rounded-md border ${indexBadgeClass}">#${seg.order_index}</span>
+          <span class="font-mono text-[10px] text-slate-400 tracking-tight">${seg.id.split('_').slice(-2).join('_')}</span>
         </div>
-        <div class="flex items-center space-x-1">
-          ${statusBadge}
+        <div class="flex items-center space-x-1.5">
+          ${seg.alignment_id ? `
+            <span class="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-mono font-semibold" title="Mã dóng: ${seg.alignment_id}">✓ Đã dóng</span>
+          ` : statusBadge}
         </div>
       </div>
-      <div class="mt-2 text-sm leading-relaxed text-slate-800 ${side === 'han' ? 'font-cjk font-normal text-base' : 'font-sans'}">
+
+      <!-- Segment Text Body -->
+      <div class="mt-2.5 ${isHan ? 'font-cjk text-[17px] leading-[1.8] text-slate-900 tracking-wide font-normal' : 'font-sans text-[14px] leading-relaxed text-slate-800 font-normal'}">
         ${escapeHtml(seg.clean_text)}
       </div>
-      <div class="mt-2 pt-1.5 flex items-center justify-between text-[11px] text-slate-400">
-        <span>Trang ${seg.page_ref}</span>
-        <div class="flex items-center space-x-1.5">
-          <button onclick="openEditModal('${seg.id}')" title="Sửa phân đoạn" class="hover:text-slate-700 px-1 py-0.5 rounded hover:bg-slate-100">Sửa</button>
-          <button onclick="openSplitModal('${seg.id}')" title="Tách phân đoạn" class="hover:text-slate-700 px-1 py-0.5 rounded hover:bg-slate-100">Tách</button>
-          <button onclick="deleteSegment('${seg.id}')" title="Xóa ô / phân đoạn này" class="text-slate-400 hover:text-rose-600 hover:bg-rose-50 px-1 py-0.5 rounded transition">Xóa ô</button>
+
+      <!-- Card Action Footer -->
+      <div class="mt-3 pt-2 flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-100/70">
+        <span class="font-medium text-[10px] text-slate-400">Trang ${seg.page_ref}</span>
+        
+        <div class="flex items-center space-x-1">
+          <button onclick="openEditModal('${seg.id}')" title="Sửa nội dung câu này"
+            class="text-slate-600 hover:text-slate-900 hover:bg-slate-100 px-2 py-1 rounded-md transition font-medium flex items-center space-x-1">
+            <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+            <span>Sửa</span>
+          </button>
+
+          <button onclick="openSplitModal('${seg.id}')" title="Tách thành nhiều câu nhỏ"
+            class="text-slate-600 hover:text-slate-900 hover:bg-slate-100 px-2 py-1 rounded-md transition font-medium flex items-center space-x-1">
+            <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"></path></svg>
+            <span>Tách</span>
+          </button>
+
+          <button onclick="deleteSegment('${seg.id}')" title="Xóa bỏ ô này nếu là text rác / lỗi OCR"
+            class="text-slate-400 hover:text-rose-600 hover:bg-rose-50 px-2 py-1 rounded-md transition font-medium flex items-center space-x-1">
+            <svg class="w-3 h-3 text-slate-400 group-hover:text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            <span>Xóa ô</span>
+          </button>
+
           ${seg.alignment_id ? `
-            <button onclick="deleteAlignment('${seg.alignment_id}')" title="Hủy xác nhận dóng hàng" class="text-rose-600 hover:text-white hover:bg-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded font-medium transition">Hủy dóng</button>
+            <button onclick="deleteAlignment('${seg.alignment_id}')" title="Hủy xác nhận dóng hàng của ô này"
+              class="text-rose-700 hover:text-white hover:bg-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md font-bold text-[10px] transition flex items-center space-x-0.5">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+              <span>Hủy dóng</span>
+            </button>
           ` : ''}
         </div>
       </div>
@@ -170,13 +230,13 @@ function renderSide(side, segments, container, selectedSet) {
 
 function getStatusBadge(status) {
   if (status === 'confirmed') {
-    return `<span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800">Đã dóng</span>`;
+    return `<span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">Đã dóng</span>`;
   } else if (status === 'needs_review') {
-    return `<span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800">Cần duyệt</span>`;
+    return `<span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">Cần duyệt</span>`;
   } else if (status === 'suggested') {
-    return `<span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-800">Gợi ý AI</span>`;
+    return `<span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">Gợi ý AI</span>`;
   }
-  return `<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-500">Chưa gán</span>`;
+  return `<span class="px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 text-slate-500 border border-slate-200">Chưa gán</span>`;
 }
 
 function handleSegmentClick(side, segment, isShift) {
@@ -184,7 +244,6 @@ function handleSegmentClick(side, segment, isShift) {
   const segmentsList = side === 'han' ? hanSegments : vietSegments;
 
   if (isShift && selectedSet.size > 0) {
-    // Select range
     const selectedIndices = Array.from(selectedSet).map(id => segmentsList.find(s => s.id === id).order_index);
     const minIdx = Math.min(...selectedIndices);
     const maxIdx = Math.max(...selectedIndices);
@@ -198,7 +257,6 @@ function handleSegmentClick(side, segment, isShift) {
       if (s) selectedSet.add(s.id);
     }
   } else {
-    // Toggle
     if (selectedSet.has(segment.id)) {
       selectedSet.delete(segment.id);
     } else {
@@ -220,14 +278,18 @@ function updateSelectionPreview() {
   const badge = document.getElementById('cardinalityBadge');
   const preview = document.getElementById('previewText');
   const btn = document.getElementById('btnConfirm');
+  const btnUnconfirm = document.getElementById('btnUnconfirm');
 
   if (numHan === 0 && numViet === 0) {
-    const btnUnconfirm = document.getElementById('btnUnconfirm');
     if (btnUnconfirm) btnUnconfirm.style.display = 'none';
-    badge.innerText = '0–0';
-    badge.className = 'px-2 py-0.5 rounded font-mono font-bold bg-slate-200 text-slate-700';
-    preview.innerHTML = '<em>Chọn phân đoạn Hán và Việt liền kề để dóng hàng...</em>';
-    btn.disabled = true;
+    if (badge) {
+      badge.innerText = '0–0';
+      badge.className = 'px-2.5 py-1 rounded-md font-mono font-bold text-xs bg-slate-200 text-slate-700';
+    }
+    if (preview) {
+      preview.innerHTML = '<span class="italic text-slate-400">Chọn 1 hoặc nhiều phân đoạn Hán và Việt liền kề để dóng hàng...</span>';
+    }
+    if (btn) btn.disabled = true;
     return;
   }
 
@@ -238,36 +300,36 @@ function updateSelectionPreview() {
   else if (numHan >= 2 && numViet >= 2) type = 'n–m';
   else type = `${numHan}–${numViet}`;
 
-  // Validate contiguity
-  let isHanContiguous = checkContiguity(hanSelectedSegs);
-  let isVietContiguous = checkContiguity(vietSelectedSegs);
+  const isHanContiguous = checkContiguity(hanSelectedSegs);
+  const isVietContiguous = checkContiguity(vietSelectedSegs);
+  const isValid = (numHan >= 1 && numViet >= 1 && isHanContiguous && isVietContiguous);
 
-  let isValid = (numHan >= 1 && numViet >= 1 && isHanContiguous && isVietContiguous);
+  if (badge) {
+    badge.innerText = type;
+    badge.className = isValid 
+      ? 'px-2.5 py-1 rounded-md font-mono font-bold text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs'
+      : 'px-2.5 py-1 rounded-md font-mono font-bold text-xs bg-amber-100 text-amber-800 border border-amber-300 shadow-2xs';
+  }
 
-  badge.innerText = type;
-  badge.className = isValid 
-    ? 'px-2 py-0.5 rounded font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-300'
-    : 'px-2 py-0.5 rounded font-mono font-bold bg-amber-100 text-amber-800 border border-amber-300';
-
-  let previewHtml = '';
+  let previewHtml = '<div class="flex items-center space-x-2 text-xs">';
   if (numHan > 0) {
-    previewHtml += `<span class="font-cjk text-blue-900 font-medium">${hanSelectedSegs.map(s => escapeHtml(s.clean_text)).join(' ')}</span>`;
+    previewHtml += `<div class="bg-sky-50 border border-sky-200 text-sky-900 px-2 py-1 rounded-md truncate max-w-xs font-cjk font-medium">${hanSelectedSegs.map(s => escapeHtml(s.clean_text)).join(' ')}</div>`;
   }
   if (numHan > 0 && numViet > 0) {
-    previewHtml += `<span class="mx-2 text-slate-400 font-bold">&harr;</span>`;
+    previewHtml += `<span class="text-slate-400 font-bold">&harr;</span>`;
   }
   if (numViet > 0) {
-    previewHtml += `<span class="font-sans text-rose-900">${vietSelectedSegs.map(s => escapeHtml(s.clean_text)).join(' ')}</span>`;
+    previewHtml += `<div class="bg-rose-50 border border-rose-200 text-rose-900 px-2 py-1 rounded-md truncate max-w-xs font-sans font-medium">${vietSelectedSegs.map(s => escapeHtml(s.clean_text)).join(' ')}</div>`;
   }
 
   if (!isHanContiguous) {
-    previewHtml += `<span class="text-amber-600 font-bold text-xs ml-2">(Hán không liền kề)</span>`;
+    previewHtml += `<span class="text-amber-600 font-bold text-xs ml-1">(Hán không liền kề)</span>`;
   }
   if (!isVietContiguous) {
-    previewHtml += `<span class="text-amber-600 font-bold text-xs ml-2">(Việt không liền kề)</span>`;
+    previewHtml += `<span class="text-amber-600 font-bold text-xs ml-1">(Việt không liền kề)</span>`;
   }
+  previewHtml += '</div>';
 
-  const btnUnconfirm = document.getElementById('btnUnconfirm');
   const selectedWithAlign = [...hanSelectedSegs, ...vietSelectedSegs].filter(s => s.alignment_id);
   if (selectedWithAlign.length > 0) {
     if (btnUnconfirm) {
@@ -275,15 +337,12 @@ function updateSelectionPreview() {
       const uniqueAlignCount = new Set(selectedWithAlign.map(s => s.alignment_id)).size;
       btnUnconfirm.innerHTML = `<svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg><span>Hủy xác nhận (${uniqueAlignCount})</span>`;
     }
-    previewHtml += `<span class="text-rose-600 font-semibold text-xs ml-2">(Có phân đoạn đã dóng - bấm Hủy xác nhận để gỡ)</span>`;
   } else {
-    if (btnUnconfirm) {
-      btnUnconfirm.style.display = 'none';
-    }
+    if (btnUnconfirm) btnUnconfirm.style.display = 'none';
   }
 
-  preview.innerHTML = previewHtml;
-  btn.disabled = (!isValid || selectedWithAlign.length > 0);
+  if (preview) preview.innerHTML = previewHtml;
+  if (btn) btn.disabled = (!isValid || selectedWithAlign.length > 0);
 }
 
 function checkContiguity(segs) {
@@ -299,6 +358,24 @@ function clearSelection() {
   selectedViet.clear();
   renderColumns();
   updateSelectionPreview();
+}
+
+function jumpToNextUnassigned(side) {
+  const segmentsList = (side === 'han') ? hanSegments : vietSegments;
+  const unassigned = segmentsList.find(s => s.alignment_status === 'unassigned');
+  if (!unassigned) {
+    if (window.showToast) window.showToast(`Tất cả các ô ${side === 'han' ? 'Hán' : 'Việt'} đã được dóng hàng!`, 'info');
+    return;
+  }
+
+  const card = document.getElementById(`card_${unassigned.id}`);
+  if (card) {
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.add('ring-4', side === 'han' ? 'ring-sky-400' : 'ring-rose-400');
+    setTimeout(() => {
+      card.classList.remove('ring-4', side === 'han' ? 'ring-sky-400' : 'ring-rose-400');
+    }, 1200);
+  }
 }
 
 async function confirmAlignment() {
@@ -324,10 +401,13 @@ async function confirmAlignment() {
       throw new Error(err.detail || 'Lỗi khi tạo dóng hàng');
     }
 
+    const data = await res.json();
     clearSelection();
     await loadWorkspaceData();
+    if (window.showToast) window.showToast(`Đã dóng cặp ${data.alignment_type} thành công!`, 'success');
   } catch (err) {
-    alert(err.message);
+    if (window.showToast) window.showToast(err.message, 'error');
+    else alert(err.message);
     showSaveStatus('Lỗi lưu', 'rose');
   }
 }
@@ -345,8 +425,10 @@ async function undoAlignment() {
       throw new Error(err.detail || 'Không thể hoàn tác');
     }
     await loadWorkspaceData();
+    if (window.showToast) window.showToast('Đã hoàn tác cặp dóng gần nhất', 'info');
   } catch (err) {
-    alert(err.message);
+    if (window.showToast) window.showToast(err.message, 'error');
+    else alert(err.message);
     showSaveStatus('Đã lưu', 'emerald');
   }
 }
@@ -358,9 +440,11 @@ async function deleteAlignment(alignId) {
     const res = await fetch(`/api/alignments/${alignId}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('Không thể hủy xác nhận cặp dóng hàng');
     await loadWorkspaceData();
+    if (window.showToast) window.showToast('Đã hủy xác nhận dóng hàng', 'info');
     showSaveStatus('Đã hủy dóng', 'emerald');
   } catch (err) {
-    alert(err.message);
+    if (window.showToast) window.showToast(err.message, 'error');
+    else alert(err.message);
     showSaveStatus('Lỗi hủy dóng', 'rose');
   }
 }
@@ -380,9 +464,11 @@ async function unconfirmSelected() {
     }
     clearSelection();
     await loadWorkspaceData();
+    if (window.showToast) window.showToast(`Đã hủy ${alignIds.length} cặp dóng hàng`, 'info');
     showSaveStatus('Đã hủy dóng', 'emerald');
   } catch (err) {
-    alert(err.message);
+    if (window.showToast) window.showToast(err.message, 'error');
+    else alert(err.message);
     showSaveStatus('Lỗi hủy dóng', 'rose');
   }
 }
@@ -408,9 +494,11 @@ async function deleteSegment(segId) {
     selectedViet.delete(segId);
 
     await loadWorkspaceData();
+    if (window.showToast) window.showToast('Đã xóa ô phân đoạn và tự động đánh lại số thứ tự', 'info');
     showSaveStatus('Đã xóa ô', 'emerald');
   } catch (err) {
-    alert('Lỗi xóa ô: ' + err.message);
+    if (window.showToast) window.showToast('Lỗi xóa ô: ' + err.message, 'error');
+    else alert('Lỗi xóa ô: ' + err.message);
     showSaveStatus('Lỗi xóa ô', 'rose');
   }
 }
@@ -469,8 +557,10 @@ async function submitEditSegment() {
     if (!res.ok) throw new Error(await res.text());
     document.getElementById('editSegmentModal').classList.add('hidden');
     await loadWorkspaceData();
+    if (window.showToast) window.showToast('Đã cập nhật nội dung phân đoạn', 'success');
   } catch (err) {
-    alert('Lỗi: ' + err.message);
+    if (window.showToast) window.showToast('Lỗi: ' + err.message, 'error');
+    else alert('Lỗi: ' + err.message);
   }
 }
 
@@ -489,7 +579,8 @@ async function submitSplitSegment() {
   const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
 
   if (lines.length < 2) {
-    alert('Vui lòng nhập ít nhất 2 dòng để thực hiện tách phân đoạn.');
+    if (window.showToast) window.showToast('Vui lòng nhập ít nhất 2 dòng để tách', 'warning');
+    else alert('Vui lòng nhập ít nhất 2 dòng để thực hiện tách phân đoạn.');
     return;
   }
 
@@ -502,8 +593,10 @@ async function submitSplitSegment() {
     if (!res.ok) throw new Error(await res.text());
     document.getElementById('splitSegmentModal').classList.add('hidden');
     await loadWorkspaceData();
+    if (window.showToast) window.showToast(`Đã tách thành ${lines.length} câu con`, 'success');
   } catch (err) {
-    alert('Lỗi: ' + err.message);
+    if (window.showToast) window.showToast('Lỗi: ' + err.message, 'error');
+    else alert('Lỗi: ' + err.message);
   }
 }
 
@@ -511,7 +604,8 @@ async function submitSplitSegment() {
 async function promptMergeSegments(side) {
   const selectedSet = side === 'han' ? selectedHan : selectedViet;
   if (selectedSet.size < 2) {
-    alert(`Hãy chọn ít nhất 2 phân đoạn ${side === 'han' ? 'Hán' : 'Việt'} liền kề để gộp.`);
+    if (window.showToast) window.showToast(`Hãy chọn ít nhất 2 ô ${side === 'han' ? 'Hán' : 'Việt'} liền kề để gộp`, 'warning');
+    else alert(`Hãy chọn ít nhất 2 phân đoạn ${side === 'han' ? 'Hán' : 'Việt'} liền kề để gộp.`);
     return;
   }
 
@@ -526,8 +620,10 @@ async function promptMergeSegments(side) {
     if (!res.ok) throw new Error(await res.text());
     clearSelection();
     await loadWorkspaceData();
+    if (window.showToast) window.showToast('Đã gộp các phân đoạn thành công', 'success');
   } catch (err) {
-    alert('Lỗi: ' + err.message);
+    if (window.showToast) window.showToast('Lỗi: ' + err.message, 'error');
+    else alert('Lỗi: ' + err.message);
   }
 }
 
@@ -535,7 +631,8 @@ async function promptMergeSegments(side) {
 async function submitAiSuggestions() {
   const fileInput = document.getElementById('ai_suggestions_file');
   if (!fileInput.files || fileInput.files.length === 0) {
-    alert('Vui lòng chọn file suggestions.json');
+    if (window.showToast) window.showToast('Vui lòng chọn file suggestions.json', 'warning');
+    else alert('Vui lòng chọn file suggestions.json');
     return;
   }
 
@@ -552,11 +649,12 @@ async function submitAiSuggestions() {
       throw new Error(err.detail || 'Lỗi nhập gợi ý');
     }
     const data = await res.json();
-    alert(`Đã nhập thành công ${data.imported_suggestions_count} gợi ý từ model ${data.model_name}!`);
     document.getElementById('aiSuggestionsModal').classList.add('hidden');
     await loadWorkspaceData();
+    if (window.showToast) window.showToast(`Đã nhập thành công ${data.imported_suggestions_count} gợi ý từ model ${data.model_name}!`, 'success');
   } catch (err) {
-    alert('Lỗi: ' + err.message);
+    if (window.showToast) window.showToast('Lỗi: ' + err.message, 'error');
+    else alert('Lỗi: ' + err.message);
   }
 }
 

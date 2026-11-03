@@ -4,6 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Han–Viet Alignment Studio{% endblock %}</title>
+  <!-- Google Fonts: Inter & Noto Serif TC/SC for authentic Sino-Vietnamese / Classical CJK -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Serif+SC:wght@400;600;700&family=Noto+Serif+TC:wght@400;600;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -12,47 +17,88 @@
         extend: {
           colors: {
             brand: { 50: '#f0fdf4', 500: '#16a34a', 600: '#15803d', 700: '#166534' },
-            han: { 50: '#eff6ff', 100: '#dbeafe', 600: '#2563eb', 800: '#1e40af' },
-            viet: { 50: '#fef2f2', 100: '#fee2e2', 600: '#dc2626', 800: '#991b1b' },
+            han: { 50: '#f0f7ff', 100: '#e0effe', 200: '#bae0fd', 500: '#0284c7', 600: '#0369a1', 700: '#075985', 900: '#0c4a6e' },
+            viet: { 50: '#fff1f2', 100: '#ffe4e6', 200: '#fecdd3', 500: '#e11d48', 600: '#be123c', 700: '#9f1239', 900: '#881337' },
           },
           fontFamily: {
-            cjk: ['"Noto Serif CJK SC"', '"Noto Serif CJK TC"', '"Source Han Serif"', '"SimSun"', 'serif'],
+            cjk: ['"Noto Serif TC"', '"Noto Serif SC"', '"Source Han Serif"', '"Songti SC"', 'SimSun', 'serif'],
             sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+          },
+          boxShadow: {
+            'subtle': '0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03)',
+            'card-hover': '0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04)',
           }
         }
       }
     }
   </script>
   <style>
-    .font-cjk { font-family: "Noto Serif CJK TC", "Noto Serif CJK SC", "SimSun", "Songti SC", serif; }
-    /* Scrollbar styling */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: #f1f5f9; }
-    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    .font-cjk { font-family: "Noto Serif TC", "Noto Serif SC", "Source Han Serif", "Songti SC", SimSun, serif; }
+    /* Sleek Custom Scrollbar */
+    ::-webkit-scrollbar { width: 7px; height: 7px; }
+    ::-webkit-scrollbar-track { background: #f8fafc; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
     ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+    /* Transitions & Focus outlines */
+    .transition-fast { transition: all 180ms cubic-bezier(0.4, 0, 0.2, 1); }
+    button:focus-visible, a:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+
+    /* Toast animation */
+    @keyframes slideInUp {
+      from { transform: translateY(100%); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .animate-toast { animation: slideInUp 0.25s ease-out forwards; }
   </style>
 </head>
-<body class="h-full flex flex-col font-sans text-slate-800 antialiased">
-  <!-- Top Navigation -->
-  <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+<body class="h-full flex flex-col font-sans text-slate-800 antialiased bg-slate-100">
+  <!-- Top Navigation Header -->
+  <header class="bg-white/95 backdrop-blur border-b border-slate-200 sticky top-0 z-30 shadow-xs">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="flex justify-between h-14 items-center">
+        <!-- Logo & Branding -->
         <div class="flex items-center space-x-3">
-          <a href="/" class="flex items-center space-x-2 text-slate-900 font-bold text-lg hover:text-emerald-700">
-            <span class="p-1.5 bg-emerald-600 text-white rounded font-mono text-sm">漢越</span>
-            <span>Han–Viet Alignment Studio</span>
+          <a href="/" class="flex items-center space-x-2.5 text-slate-900 font-bold text-base hover:opacity-90 transition">
+            <span class="w-8 h-8 rounded-lg bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center font-cjk font-bold text-base shadow-sm">漢越</span>
+            <div class="flex flex-col">
+              <span class="text-sm font-bold tracking-tight text-slate-900 leading-tight">Han–Viet Studio</span>
+              <span class="text-[10px] text-slate-400 font-medium">NLP Parallel Alignment</span>
+            </div>
           </a>
-          <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-medium">Local v1.0</span>
+          <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200">v2.0 UI</span>
         </div>
-        <nav class="flex items-center space-x-4 text-sm font-medium">
-          <a href="/" class="text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-md hover:bg-slate-100">Dự án</a>
+
+        <!-- Navigation Tabs -->
+        <nav class="flex items-center space-x-1 text-xs font-semibold">
+          <a href="/" class="text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition flex items-center space-x-1.5">
+            <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+            <span>Dự án</span>
+          </a>
           {% if project %}
-          <span class="text-slate-300">/</span>
-          <span class="text-slate-800 font-semibold truncate max-w-xs">{{ project.name }} ({{ project.ma_de_tai }})</span>
-          <a href="/clean/{{ project.id }}" class="text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-md hover:bg-slate-100">Thô & Sạch</a>
-          <a href="/workspace/{{ project.id }}" class="text-emerald-700 hover:bg-emerald-50 px-3 py-1.5 rounded-md">Workspace</a>
-          <a href="/qa/{{ project.id }}" class="text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-md hover:bg-slate-100">QA & Lỗi</a>
-          <a href="/export/{{ project.id }}" class="text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-md hover:bg-slate-100">Xuất & Sao lưu</a>
+          <span class="text-slate-300 font-normal px-1">/</span>
+          <div class="px-2 py-1 rounded bg-slate-100 text-slate-700 font-semibold truncate max-w-xs flex items-center space-x-1.5 border border-slate-200">
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span class="truncate">{{ project.name }}</span>
+            <span class="text-[10px] text-slate-400 font-mono">({{ project.ma_de_tai }})</span>
+          </div>
+
+          <a href="/clean/{{ project.id }}" class="text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition flex items-center space-x-1">
+            <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+            <span>Thô & Sạch</span>
+          </a>
+          <a href="/workspace/{{ project.id }}" class="bg-emerald-600 text-white px-3.5 py-1.5 rounded-lg font-semibold shadow-xs hover:bg-emerald-700 transition flex items-center space-x-1.5">
+            <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg>
+            <span>Dóng Hàng</span>
+          </a>
+          <a href="/qa/{{ project.id }}" class="text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition flex items-center space-x-1">
+            <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            <span>QA & Lỗi</span>
+          </a>
+          <a href="/export/{{ project.id }}" class="text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition flex items-center space-x-1">
+            <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+            <span>Xuất & Sao lưu</span>
+          </a>
           {% endif %}
         </nav>
       </div>
@@ -64,6 +110,43 @@
     {% block content %}{% endblock %}
   </main>
 
+  <!-- Global Floating Toast Notification Container -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
+
+  <script>
+    // Global Toast Notification Helper
+    window.showToast = function(message, type = 'info', duration = 3000) {
+      const container = document.getElementById('toastContainer');
+      if (!container) return;
+
+      const toast = document.createElement('div');
+      const bgMap = {
+        success: 'bg-emerald-800 text-white border-emerald-700',
+        error: 'bg-rose-800 text-white border-rose-700',
+        warning: 'bg-amber-800 text-white border-amber-700',
+        info: 'bg-slate-900 text-white border-slate-700'
+      };
+      const iconMap = {
+        success: '<svg class="w-4 h-4 text-emerald-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>',
+        error: '<svg class="w-4 h-4 text-rose-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>',
+        warning: '<svg class="w-4 h-4 text-amber-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>',
+        info: '<svg class="w-4 h-4 text-blue-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>'
+      };
+
+      toast.className = `pointer-events-auto flex items-center space-x-2.5 px-4 py-2.5 rounded-xl border shadow-lg text-xs font-medium animate-toast ${bgMap[type] || bgMap.info}`;
+      toast.innerHTML = `${iconMap[type] || iconMap.info}<span>${message}</span>`;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(10px)';
+        toast.style.transition = 'all 0.25s ease-out';
+        setTimeout(() => toast.remove(), 250);
+      }, duration);
+    };
+  </script>
+
   {% block scripts %}{% endblock %}
 </body>
 </html>
+

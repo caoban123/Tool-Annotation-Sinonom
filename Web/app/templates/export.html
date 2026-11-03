@@ -136,10 +136,12 @@ async function triggerBackup() {
   try {
     const res = await fetch('/api/exports/backup?tag=user_manual', { method: 'POST' });
     if (!res.ok) throw new Error(await res.text());
-    alert('Đã sao lưu SQLite database an toàn!');
+    if (window.showToast) window.showToast('Đã sao lưu SQLite database an toàn!', 'success');
+    else alert('Đã sao lưu SQLite database an toàn!');
     await loadBackups();
   } catch (err) {
-    alert('Lỗi: ' + err.message);
+    if (window.showToast) window.showToast('Lỗi: ' + err.message, 'error');
+    else alert('Lỗi: ' + err.message);
   }
 }
 
@@ -149,10 +151,12 @@ async function restoreBackup(filename) {
   try {
     const res = await fetch(`/api/exports/restore?filename=${encodeURIComponent(filename)}`, { method: 'POST' });
     if (!res.ok) throw new Error(await res.text());
-    alert('Đã khôi phục thành công! Trang sẽ được làm mới.');
-    location.reload();
+    if (window.showToast) window.showToast('Đã khôi phục thành công! Trang đang làm mới...', 'success');
+    else alert('Đã khôi phục thành công! Trang sẽ được làm mới.');
+    setTimeout(() => location.reload(), 1000);
   } catch (err) {
-    alert('Lỗi khôi phục: ' + err.message);
+    if (window.showToast) window.showToast('Lỗi khôi phục: ' + err.message, 'error');
+    else alert('Lỗi khôi phục: ' + err.message);
   }
 }
 </script>

@@ -134,10 +134,12 @@ async function runQaScan() {
   try {
     const res = await fetch(`/api/qa/scan?project_id=${projectId}`, { method: 'POST' });
     if (!res.ok) throw new Error('Không thể chạy quét QA');
+    if (window.showToast) window.showToast('Đã quét xong chất lượng QA!', 'success');
     await loadIssues();
-    location.reload();
+    setTimeout(() => location.reload(), 600);
   } catch (err) {
-    alert(err.message);
+    if (window.showToast) window.showToast(err.message, 'error');
+    else alert(err.message);
   }
 }
 
@@ -145,9 +147,11 @@ async function resolveIssue(issueId) {
   try {
     const res = await fetch(`/api/qa/${issueId}/resolve`, { method: 'POST' });
     if (!res.ok) throw new Error('Không thể giải quyết');
+    if (window.showToast) window.showToast('Đã đánh dấu xử lý vấn đề QA', 'info');
     await loadIssues();
   } catch (err) {
-    alert(err.message);
+    if (window.showToast) window.showToast(err.message, 'error');
+    else alert(err.message);
   }
 }
 

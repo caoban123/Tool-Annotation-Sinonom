@@ -126,25 +126,25 @@ function renderComparison() {
   segments.forEach((seg, idx) => {
     // Raw card
     const rawCard = document.createElement("div");
-    rawCard.className = "p-3 rounded-lg border border-slate-200 bg-white text-xs";
+    rawCard.className = "p-3.5 rounded-xl border border-slate-200 bg-white shadow-xs text-xs";
     rawCard.innerHTML = `
-      <div class="text-[10px] text-slate-400 font-mono pb-1 border-b border-slate-100 flex justify-between">
-        <span>#${seg.order_index} (Trang ${seg.page_ref})</span>
-        <span>Thô</span>
+      <div class="text-[10px] text-slate-400 font-mono pb-1.5 border-b border-slate-100 flex justify-between">
+        <span class="font-bold">#${seg.order_index} (Trang ${seg.page_ref})</span>
+        <span class="px-1.5 py-0.2 bg-amber-50 text-amber-800 rounded font-bold border border-amber-200">Bản Thô</span>
       </div>
-      <div class="mt-2 ${currentLang === 'han' ? 'font-cjk text-sm' : 'font-sans'} text-slate-700">${escapeHtml(seg.raw_text)}</div>
+      <div class="mt-2.5 ${currentLang === 'han' ? 'font-cjk text-[16px] leading-relaxed text-slate-800' : 'font-sans text-sm leading-relaxed text-slate-800'}">${escapeHtml(seg.raw_text)}</div>
     `;
     rawBox.appendChild(rawCard);
 
     // Clean card
     const cleanCard = document.createElement("div");
-    cleanCard.className = "p-3 rounded-lg border border-emerald-200 bg-white text-xs";
+    cleanCard.className = "p-3.5 rounded-xl border border-emerald-200 bg-white shadow-xs text-xs";
     cleanCard.innerHTML = `
-      <div class="text-[10px] text-emerald-700 font-mono pb-1 border-b border-slate-100 flex justify-between items-center">
-        <span>#${seg.order_index} — Sạch</span>
-        <button onclick="inlineEdit('${seg.id}')" class="text-emerald-700 hover:text-emerald-900 font-bold px-1.5 py-0.5 rounded bg-emerald-50">Sửa câu</button>
+      <div class="text-[10px] text-emerald-700 font-mono pb-1.5 border-b border-slate-100 flex justify-between items-center">
+        <span class="font-bold">#${seg.order_index} — Bản Sạch</span>
+        <button onclick="inlineEdit('${seg.id}')" class="text-emerald-700 hover:text-white hover:bg-emerald-600 font-bold px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 transition">Sửa câu</button>
       </div>
-      <div id="clean_text_${seg.id}" class="mt-2 ${currentLang === 'han' ? 'font-cjk text-sm' : 'font-sans'} text-slate-900 font-medium">${escapeHtml(seg.clean_text)}</div>
+      <div id="clean_text_${seg.id}" class="mt-2.5 ${currentLang === 'han' ? 'font-cjk text-[16px] leading-relaxed text-slate-900 font-medium' : 'font-sans text-sm leading-relaxed text-slate-900 font-medium'}">${escapeHtml(seg.clean_text)}</div>
     `;
     cleanBox.appendChild(cleanCard);
   });
@@ -164,15 +164,17 @@ async function inlineEdit(segId) {
     });
     if (!res.ok) throw new Error(await res.text());
     await loadData();
+    if (window.showToast) window.showToast("Đã cập nhật câu sạch!", "success");
   } catch (err) {
-    alert("Lỗi sửa: " + err.message);
+    if (window.showToast) window.showToast("Lỗi sửa: " + err.message, "error");
+    else alert("Lỗi sửa: " + err.message);
   }
 }
 
 async function batchNormalizeWhitespace() {
   if (!confirm("Chuẩn hóa khoảng trắng và dấu cách cho toàn bộ câu của ngôn ngữ này?")) return;
   for (const s of segments) {
-    const norm = s.clean_text.replace(/\\s+/g, " ").trim();
+    const norm = s.clean_text.replace(/\s+/g, " ").trim();
     if (norm !== s.clean_text) {
       await fetch(`/api/segments/${s.id}?project_id=${projectId}`, {
         method: "PUT",
@@ -181,7 +183,8 @@ async function batchNormalizeWhitespace() {
       });
     }
   }
-  alert("Đã hoàn tất chuẩn hóa khoảng trắng!");
+  if (window.showToast) window.showToast("Đã hoàn tất chuẩn hóa khoảng trắng!", "success");
+  else alert("Đã hoàn tất chuẩn hóa khoảng trắng!");
   await loadData();
 }
 
