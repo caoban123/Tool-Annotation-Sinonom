@@ -10,7 +10,8 @@ build/
 
 # Local databases & uploads
 Web/data/
-data/
+data/*
+!data/works_catalog.json
 *.sqlite
 *.sqlite3
 *.db

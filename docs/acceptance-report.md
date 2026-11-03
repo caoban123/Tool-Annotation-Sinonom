@@ -1,6 +1,6 @@
 # BÁO CÁO NGHIỆM THU — HAN–VIET ALIGNMENT STUDIO
 
-- **Thời gian kiểm chứng**: 2026-11-03T01:14:39Z
+- **Thời gian kiểm chứng**: 2026-11-03T21:29:36Z
 - **Hệ điều hành**: Windows (nt)
 - **Python Version**: 3.10.5
 - **Trạng thái tổng thể**: **DONE — TẤT CẢ G01-G15 ĐÃ KIỂM CHỨNG ĐẠT**
@@ -27,9 +27,9 @@
 
 ## 2. Bằng Chứng Thực Thi Các Test Suites
 
-1. **Pytest Unit & Integration (T01–T16, Export Parity, QA, Backup, Crawl, OCR, AI)**: `32.82s` — `PASSED`
-2. **4 Jupyter Notebooks Smoke Execution (Crawl, OCR Han, OCR Viet, Semantic AI)**: `19.86s` — `PASSED`
-3. **Playwright Headless Chrome Browser E2E**: `23.64s` — `PASSED` (Screenshot: `artifacts/workspace_e2e.png`)
+1. **Pytest Unit & Integration (T01–T16, Export Parity, QA, Backup, Crawl, OCR, AI)**: `31.68s` — `PASSED`
+2. **4 Jupyter Notebooks Smoke Execution (Crawl, OCR Han, OCR Viet, Semantic AI)**: `22.59s` — `PASSED`
+3. **Playwright Headless Chrome Browser E2E**: `76.87s` — `PASSED` (Screenshot: `artifacts/workspace_e2e.png`)
 4. **Synthetic Scalability Data (2.000 cặp / 8.000 cặp nhóm)**: `PASSED`
 5. **Mô hình AI & Hardware Benchmark**: `PASSED`
 

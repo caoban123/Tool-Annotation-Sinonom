@@ -1,13 +1,13 @@
 # Báo Cáo Benchmark & Đánh Giá Mô Hình AI
 
-- **Thời gian chạy**: 2026-11-03T01:14:39Z
+- **Thời gian chạy**: 2026-11-03T21:29:36Z
 - **Phần cứng**: None (CPU Execution)
 
 ## 1. Kết Quả Đo Lường Trên Fixture Chuẩn
 
 | Mô hình | Trạng thái | Độ chính xác (5 cặp mẫu) | Độ trễ |
 |---|---|---|---|
-| `DeterministicSimAdapter` | Sẵn sàng (Local/CPU) | 100.0% | 2.51 ms |
+| `DeterministicSimAdapter` | Sẵn sàng (Local/CPU) | 100.0% | 2.84 ms |
 | `LaBSE` | Pending GPU/Download (Not Installed Locally) | Phụ thuộc weights | - |
 | `Qwen3-Embedding-0.6B` | Hỗ trợ Colab | Khuyến nghị chạy trên Colab T4 | - |
 | `Qwen3-Embedding-4B` | Hỗ trợ Colab A100 | Khuyến nghị GPU 16GB+ | - |
