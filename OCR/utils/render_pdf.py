@@ -13,12 +13,14 @@ except ImportError:
 
 def render_pdf_to_images(
     pdf_path: str,
+    start_page: int = 1,
+    end_page: Optional[int] = None,
     max_pages: Optional[int] = None,
     scale: float = 2.0 # 2.0 corresponds to ~144 DPI, suitable balance for OCR
 ) -> List[Image.Image]:
     """
     Renders pages of a PDF document to PIL Images using pypdfium2.
-    Safe memory management and DPI bounding.
+    Supports start_page (1-based), end_page, or max_pages.
     """
     path = Path(pdf_path)
     if not path.exists():
@@ -26,10 +28,18 @@ def render_pdf_to_images(
 
     pdf = pdfium.PdfDocument(str(path))
     total_pages = len(pdf)
-    num_pages = min(total_pages, max_pages) if max_pages else total_pages
+
+    # Compute 0-based range
+    s_idx = max(0, start_page - 1)
+    if end_page is not None:
+        e_idx = min(total_pages, end_page)
+    elif max_pages is not None:
+        e_idx = min(total_pages, s_idx + max_pages)
+    else:
+        e_idx = total_pages
 
     images = []
-    for i in range(num_pages):
+    for i in range(s_idx, e_idx):
         page = pdf[i]
         # Render page to bitmap
         bitmap = page.render(scale=scale)
