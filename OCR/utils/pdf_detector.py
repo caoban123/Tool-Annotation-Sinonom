@@ -37,6 +37,27 @@ def inspect_pdf(pdf_path: str, sample_pages: int = 5) -> Dict[str, Any]:
     if not path.exists():
         raise FileNotFoundError(f"Không tìm thấy file PDF: {pdf_path}")
 
+    # Check for Git LFS pointer text file before passing to pypdf
+    try:
+        if path.stat().st_size < 4096:
+            with open(path, "rb") as f:
+                header = f.read(20)
+                if header.startswith(b"version https://") or header.startswith(b"versi"):
+                    return {
+                        "pdf_type": "PDF_LFS_POINTER",
+                        "total_pages": 0,
+                        "sample_pages_count": 0,
+                        "total_sampled_chars": 0,
+                        "avg_chars_per_page": 0.0,
+                        "is_selectable_text": False,
+                        "recommended_engine": "ocr_pipeline",
+                        "preview_snippet": "",
+                        "is_lfs_pointer": True,
+                        "reason": "File PDF này là tệp con trỏ Git LFS (~130 bytes) trên GitHub, chưa tải dữ liệu nhị phân thực tế."
+                    }
+    except Exception:
+        pass
+
     try:
         reader = pypdf.PdfReader(str(path))
         total_pages = len(reader.pages)

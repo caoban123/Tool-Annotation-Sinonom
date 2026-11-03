@@ -69,6 +69,32 @@ WORKS_CATALOG: Dict[str, Dict[str, Any]] = {
     }
 }
 
+def is_lfs_pointer_file(file_path: Path) -> bool:
+    """Checks if a file is a Git LFS pointer text file (~130 bytes starting with version https://)."""
+    if not file_path.exists():
+        return False
+    try:
+        if file_path.stat().st_size > 4096:
+            return False
+        with open(file_path, "rb") as f:
+            header = f.read(20)
+            return header.startswith(b"version https://") or header.startswith(b"versi")
+    except Exception:
+        return False
+
+def is_valid_pdf_file(file_path: Path) -> bool:
+    """Checks if a file exists, has realistic binary size (>2KB), and starts with %PDF- header."""
+    if not file_path.exists():
+        return False
+    try:
+        if file_path.stat().st_size < 2048:
+            return False
+        with open(file_path, "rb") as f:
+            header = f.read(5)
+            return header.startswith(b"%PDF-")
+    except Exception:
+        return False
+
 def get_works_catalog() -> Dict[str, Dict[str, Any]]:
     """Return dictionary of all registered works."""
     return WORKS_CATALOG
@@ -85,23 +111,46 @@ def ensure_data_source(
     target = Path(base_dir).resolve()
     target.mkdir(parents=True, exist_ok=True)
 
-    # Check if any PDF files exist inside target
-    existing_pdfs = list(target.rglob("*.pdf"))
+    # Check if any valid PDF files exist inside target
+    existing_pdfs = [p for p in target.rglob("*.pdf") if is_valid_pdf_file(p)]
     if existing_pdfs:
-        print(f"[DataLoader] Tìm thấy {len(existing_pdfs)} file PDF sẵn có trong: {target}")
+        print(f"[DataLoader] Tìm thấy {len(existing_pdfs)} file PDF dung lượng thực tế trong: {target}")
+        return target
+
+    # Check if LFS pointer files exist
+    lfs_pointers = [p for p in target.rglob("*.pdf") if is_lfs_pointer_file(p)]
+    if lfs_pointers:
+        print(f"[DataLoader] Phát hiện {len(lfs_pointers)} file PDF con trỏ Git LFS (~130 bytes). Đang thử kéo dữ liệu nhị phân với git lfs pull...")
+        try:
+            subprocess.run(["git", "lfs", "install"], check=False, capture_output=True)
+            subprocess.run(["git", "lfs", "pull"], cwd=str(target), check=False, capture_output=True)
+            # Re-check after pull
+            refreshed = [p for p in target.rglob("*.pdf") if is_valid_pdf_file(p)]
+            if refreshed:
+                print(f"[DataLoader] git lfs pull thành công: {len(refreshed)} file PDF đã được tải!")
+                return target
+        except Exception:
+            pass
+        print("[DataLoader] Lưu ý: GitHub LFS có thể đã hết hạn ngạch băng thông tải về (1GB/tháng của GitHub).")
+        print("[DataLoader] Hệ thống sẽ tự động dùng file scan kiểm thử fixture mẫu để chạy demo trơn tru.")
         return target
 
     print(f"[DataLoader] Chưa thấy file PDF nào trong {target}.")
     print(f"[DataLoader] Đang tự động kéo dữ liệu từ {git_repo_url}...")
 
     try:
-        # Clone with depth=1
+        temp_dir = target / "_cv01_temp"
         subprocess.run(
-            ["git", "clone", "--depth", "1", git_repo_url, str(target / "_cv01_temp")],
+            ["git", "clone", "--depth", "1", git_repo_url, str(temp_dir)],
             check=True
         )
+        # Attempt git lfs pull inside temp_dir
+        try:
+            subprocess.run(["git", "lfs", "pull"], cwd=str(temp_dir), check=False, capture_output=True)
+        except Exception:
+            pass
+
         # Move items into target
-        temp_dir = target / "_cv01_temp"
         for item in temp_dir.iterdir():
             if item.name.startswith(".git"):
                 continue
@@ -110,10 +159,10 @@ def ensure_data_source(
                 item.rename(dest_item)
         import shutil
         shutil.rmtree(temp_dir, ignore_errors=True)
-        print(f"[DataLoader] Kéo dữ liệu hoàn tất vào: {target}")
+        print(f"[DataLoader] Kéo cấu trúc thư mục hoàn tất vào: {target}")
     except Exception as e:
         print(f"[DataLoader] Cảnh báo khi tải dữ liệu từ git: {e}")
-        print("[DataLoader] Nếu chạy trên Colab, hãy đảm bảo kết nối mạng hoặc upload file vào data/source_materials/")
+        print("[DataLoader] Nếu chạy trên Colab, bạn có thể upload file PDF trực tiếp vào thư mục runtime.")
 
     return target
 
