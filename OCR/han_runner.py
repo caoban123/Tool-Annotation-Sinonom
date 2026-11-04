@@ -13,6 +13,7 @@ from OCR.utils.export_text import export_ocr_result
 from OCR.utils.ocr_pipeline import OCRPipeline, PaddleVLOCREngine
 from OCR.utils.render_pdf import render_pdf_to_images
 from OCR.utils.resilient_pages import recognize_page
+from OCR.utils.notebook_process import emit_progress
 
 
 def source_digest(path):
@@ -50,6 +51,7 @@ def run(config, engine=None):
     end = config.get('end_page') or count
     if not 1 <= start <= end <= count:
         raise ValueError(f'Khoang trang phai thuoc 1..{count}, nhan {start}..{end}')
+    emit_progress('start', total=end - start + 1)
     if config.get('split_spread', False) and config.get('reading_order', 'rtl_vertical') != 'rtl_vertical':
         raise ValueError('split_spread danh cho sach doc: nua phai truoc nua trai')
     output_dir = Path(config['output_dir']).resolve()
@@ -68,6 +70,11 @@ def run(config, engine=None):
     checkpoint_dir = Path(config.get('checkpoint_dir') or output_dir / 'checkpoints')
     manager = OCRCheckpointManager(str(checkpoint_dir))
     pages = []
+    def report_progress(event, **values):
+        emit_progress(event, total=end - start + 1, processed=len(pages),
+                      cached=sum(bool(p.get('is_cached')) for p in pages),
+                      review_pages=sum(bool(p.get('errors')) for p in pages),
+                      error_regions=sum(len(p.get('errors', [])) for p in pages), **values)
     pipeline = None
     for number in range(start, end + 1):
         key = manager.compute_page_key(digest, number, config['model_id'], signature)
@@ -76,8 +83,11 @@ def run(config, engine=None):
             pages.append(dict(cached, is_cached=True))
             (output_dir / 'han.partial.txt').write_text('\n'.join(p['text'] for p in pages), encoding='utf-8')
             print(f'Trang {number}/{end}: cache', flush=True)
+            report_progress('page_done', page=number, region=None)
             continue
+        report_progress('page_start', page=number, region=None)
         if engine is None:
+            report_progress('model_loading', page=number)
             print(f"[OCR] Đang nạp model {config['model_id']} (use_gpu={config.get('use_gpu', True)})...", flush=True)
             engine = PaddleVLOCREngine(
                 model_id=config['model_id'], use_gpu=config.get('use_gpu', True),
@@ -137,6 +147,7 @@ def run(config, engine=None):
                 error for saved_page in pages for error in saved_page.get('errors', [])
             ], ensure_ascii=False, indent=2), encoding='utf-8')
             print(f"Trang {number}/{end}: {len(page['text'])} ky tu", flush=True)
+            report_progress('page_done', page=number, region=None)
         finally:
             image.close()
     result = {
@@ -152,6 +163,7 @@ def run(config, engine=None):
     result['complete'] = not result['errors']
     result['status'] = 'complete' if result['complete'] else 'needs_review'
     result['text_file'] = 'han.txt' if result['complete'] else 'han.partial.txt'
+    report_progress('export', region=None)
     from importlib.metadata import version
     result['packages'] = {}
     for package in ('torch', 'transformers', 'pypdfium2', 'pillow'):
@@ -177,6 +189,7 @@ def run(config, engine=None):
         for checkpoint in (output_dir / 'region_cache').glob('*.json'):
             archive.write(checkpoint, f'region_cache/{checkpoint.name}')
     print(f"[OCR] {result['status']}: {len(result['errors'])} vùng cần kiểm tra. {output_dir / 'han_ocr.zip'}", flush=True)
+    report_progress('finish', complete=result['complete'], region=None)
     return result
 
 

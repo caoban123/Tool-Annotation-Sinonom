@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from .regions import OCRRegionError, plan_regions, split_region
+from .notebook_process import emit_progress
 
 
 def recognize_page(engine, image, manager, source_id, page_number, output_dir,
@@ -29,6 +30,7 @@ def recognize_page(engine, image, manager, source_id, page_number, output_dir,
         cached = None if force else manager.get_cached_result(key)
         if cached is not None:
             boxes.extend(cached['boxes'])
+            emit_progress('region_cached', page=page_number, region=list(bbox))
             continue
         failure = None
         if attempts >= max_attempts or time.monotonic() - started >= page_timeout:
@@ -36,6 +38,7 @@ def recognize_page(engine, image, manager, source_id, page_number, output_dir,
         else:
             attempts += 1
             print(f'[OCR] Trang {page_number}: vùng {bbox}, lần {attempts}', flush=True)
+            emit_progress('region_start', page=page_number, region=list(bbox))
             try:
                 with image.crop(bbox) as crop:
                     parameters = inspect.signature(engine.recognize_image).parameters
@@ -50,6 +53,7 @@ def recognize_page(engine, image, manager, source_id, page_number, output_dir,
                 if not manager.save_cached_result(key, data):
                     raise RuntimeError('Không lưu được checkpoint vùng ảnh')
                 boxes.extend(region_boxes)
+                emit_progress('region_done', page=page_number, region=list(bbox))
                 continue
             except Exception as exc:
                 failure = exc
@@ -60,6 +64,7 @@ def recognize_page(engine, image, manager, source_id, page_number, output_dir,
                         # The children replace the failed parent in reading order.
                         queue.extendleft(reversed([(child, depth + 1) for child in children]))
                         print(f'[OCR] Trang {page_number}: chia vùng nhỏ hơn ({exc})', flush=True)
+                        emit_progress('region_retry', page=page_number, region=list(bbox))
                         if 'out of memory' in str(exc).lower():
                             import gc
                             failure = None
@@ -78,6 +83,7 @@ def recognize_page(engine, image, manager, source_id, page_number, output_dir,
         errors.append({'page_number': page_number, 'bbox': list(bbox),
                        'error': str(failure), 'image': f'needs_review/{name}'})
         print(f'[OCR] CẦN KIỂM TRA trang {page_number}, vùng {bbox}: {failure}', flush=True)
+        emit_progress('region_error', page=page_number, region=list(bbox))
     boxes.sort(key=(lambda b: (-b['bbox'][2], b['bbox'][1])) if reading_order == 'rtl_vertical'
                else (lambda b: (b['bbox'][1], b['bbox'][0])))
     text = '\n'.join(b['text'] for b in boxes if b['text'])

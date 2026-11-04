@@ -63,6 +63,25 @@ phiên, khôi phục thư mục này vào `<output_dir>/region_cache/` của phi
 
 ## Khi cell 6 báo lỗi
 
+### Bảng tiến độ trực quan
+
+Khi chạy cell 6, bảng **Tiến độ OCR Hán** xuất hiện ngay dưới cell, phía trên log.
+Không cần chạy thêm cell hay cài ipywidgets. Bảng dùng display của IPython có sẵn
+trong Colab/Jupyter, cập nhật tại chỗ thay vì tạo thêm bảng sau mỗi dòng log.
+
+- Phần trăm và số trang đã xử lý/tổng trang trong khoảng START_PAGE–END_PAGE.
+- Số trang lấy từ cache, trang/vùng đang OCR và thời gian đã chạy.
+- Trạng thái nạp model, chia vùng, đóng gói và số trang/vùng cần kiểm tra.
+- Đồng hồ tiếp tục cập nhật khi worker chưa sinh log mới.
+- Khi có lỗi hoặc hủy cell, bảng giữ tiến độ đã đạt và báo đã dừng; không tự nhảy 100%.
+- Xử lý hết lượt nhưng còn vùng lỗi: bảng màu vàng, không báo OCR đầy đủ.
+
+Phần trăm đo tiến độ xử lý, không phải độ chính xác hay tỷ lệ trang nhận dạng thành công.
+Terminal không có IPython tiếp tục dùng log như cũ. Có thể tắt bảng bằng
+`show_progress=False` khi gọi `run_logged_process`.
+
+### Log lỗi gốc
+
 `CalledProcessError: ... exit status 1` chỉ cho biết worker đã dừng; riêng thông báo
 này không xác định được nguyên nhân model, GPU, tài liệu hay mạng.
 

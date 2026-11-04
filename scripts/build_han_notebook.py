@@ -183,12 +183,13 @@ def build_ocr_han_notebook():
     ''')
     cell('code', '''
     # 6. OCR từng cột/vùng; lưu vùng lỗi để kiểm tra và tiếp tục các trang còn lại
+    # Bảng tiến độ xuất hiện ngay dưới cell khi chạy; log chi tiết nằm bên dưới bảng.
     if not SMOKE:
         import runpy
         run_logged_process = runpy.run_path(str(SOURCE_DIR / 'OCR/utils/notebook_process.py'))['run_logged_process']
         run_logged_process(
             [str(PYTHON), '-u', '-m', 'OCR.han_runner', '--config', str(config_file)],
-            cwd=SOURCE_DIR, env=environment, log_path=WORK_DIR / 'ocr_run.log')
+            cwd=SOURCE_DIR, env=environment, log_path=WORK_DIR / 'ocr_run.log', show_progress=True)
     else:
         print('SMOKE: không nhận dạng và không xuất han.txt.')
     ''')
