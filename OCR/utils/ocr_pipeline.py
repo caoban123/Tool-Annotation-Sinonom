@@ -67,6 +67,23 @@ class PaddleVLOCREngine:
         except Exception:
             pass
 
+        # 4. Patch ROPE_INIT_FUNCTIONS['default'] in transformers.modeling_rope_utils
+        try:
+            import transformers.modeling_rope_utils as _mru
+            if hasattr(_mru, "ROPE_INIT_FUNCTIONS") and isinstance(_mru.ROPE_INIT_FUNCTIONS, dict):
+                if "default" not in _mru.ROPE_INIT_FUNCTIONS:
+                    default_fn = getattr(_mru, "_compute_default_rope_parameters", None) or getattr(_mru, "compute_default_rope_parameters", None)
+                    if default_fn is None:
+                        import torch
+                        def default_fn(config, device=None, seq_len=None, **kwargs):
+                            dim = getattr(config, "head_dim", getattr(config, "hidden_size", 768) // getattr(config, "num_attention_heads", 12))
+                            base = getattr(config, "rope_theta", 10000.0)
+                            inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2, dtype=torch.int64).float().to(device) / dim))
+                            return inv_freq, 1.0
+                    _mru.ROPE_INIT_FUNCTIONS["default"] = default_fn
+        except Exception:
+            pass
+
     def _load_model_instance(self, model_target: str, device: str, dtype: Any) -> tuple:
         self._patch_transformers_compatibility()
         from transformers import AutoConfig, AutoModelForCausalLM, AutoModel, AutoProcessor
