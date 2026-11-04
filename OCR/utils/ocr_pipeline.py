@@ -193,50 +193,56 @@ class PaddleVLOCREngine:
         """
         Patches prepare_inputs_for_generation to prevent TypeError: 'NoneType' object is not subscriptable
         when modern transformers (v5.x) passes cache_position=None or omits it.
+        Safely unwinds any previously wrapped functions to prevent RecursionError.
         """
         if hasattr(target, "prepare_inputs_for_generation"):
-            fn = getattr(target, "prepare_inputs_for_generation")
-            if not getattr(fn, "_is_paddle_cp_patched", False):
-                try:
-                    import inspect
-                    import functools
-                    import torch
+            fn = getattr(target, "_unwrapped_prep", None)
+            if fn is None:
+                fn = getattr(target, "prepare_inputs_for_generation")
+                while hasattr(fn, "__wrapped__"):
+                    fn = fn.__wrapped__
+                setattr(target, "_unwrapped_prep", fn)
 
-                    sig = inspect.signature(fn)
-                    params = list(sig.parameters.keys())
-                    cp_idx = params.index("cache_position") if "cache_position" in params else -1
-                    pkv_idx = params.index("past_key_values") if "past_key_values" in params else -1
+            try:
+                import inspect
+                import functools
+                import torch
 
-                    @functools.wraps(fn)
-                    def _safe_prepare(*args, **kwargs):
-                        dev = getattr(target, "device", "cpu")
-                        if not isinstance(dev, (str, torch.device)):
-                            dev = "cpu"
+                sig = inspect.signature(fn)
+                params = list(sig.parameters.keys())
+                cp_idx = params.index("cache_position") if "cache_position" in params else -1
+                pkv_idx = params.index("past_key_values") if "past_key_values" in params else -1
 
-                        pkv = kwargs.get("past_key_values")
-                        if pkv is None and pkv_idx >= 0 and len(args) > pkv_idx:
-                            pkv = args[pkv_idx]
+                @functools.wraps(fn)
+                def _safe_prepare(*args, **kwargs):
+                    dev = getattr(target, "device", "cpu")
+                    if not isinstance(dev, (str, torch.device)):
+                        dev = "cpu"
 
-                        step_idx = 1 if pkv else 0
-                        cp_tensor = torch.tensor([step_idx], device=dev)
+                    pkv = kwargs.get("past_key_values")
+                    if pkv is None and pkv_idx >= 0 and len(args) > pkv_idx:
+                        pkv = args[pkv_idx]
 
-                        if "cache_position" in kwargs:
-                            if kwargs["cache_position"] is None:
-                                kwargs["cache_position"] = cp_tensor
-                        elif cp_idx >= 0 and len(args) > cp_idx:
-                            if args[cp_idx] is None:
-                                args_list = list(args)
-                                args_list[cp_idx] = cp_tensor
-                                args = tuple(args_list)
-                        else:
+                    step_idx = 1 if pkv else 0
+                    cp_tensor = torch.tensor([step_idx], device=dev)
+
+                    if "cache_position" in kwargs:
+                        if kwargs["cache_position"] is None:
                             kwargs["cache_position"] = cp_tensor
+                    elif cp_idx >= 0 and len(args) > cp_idx:
+                        if args[cp_idx] is None:
+                            args_list = list(args)
+                            args_list[cp_idx] = cp_tensor
+                            args = tuple(args_list)
+                    else:
+                        kwargs["cache_position"] = cp_tensor
 
-                        return fn(*args, **kwargs)
+                    return fn(*args, **kwargs)
 
-                    _safe_prepare._is_paddle_cp_patched = True
-                    setattr(target, "prepare_inputs_for_generation", _safe_prepare)
-                except Exception:
-                    pass
+                _safe_prepare._is_paddle_cp_patched = True
+                setattr(target, "prepare_inputs_for_generation", _safe_prepare)
+            except Exception:
+                pass
 
     def _load_model_instance(self, model_target: str, device: str, dtype: Any) -> tuple:
         self._patch_transformers_compatibility()
