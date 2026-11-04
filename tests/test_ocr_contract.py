@@ -4,7 +4,7 @@ from PIL import Image
 
 from OCR.utils.checkpoints import OCRCheckpointManager
 from OCR.utils.page_order import sort_bounding_boxes
-from OCR.utils.ocr_pipeline import BaseOCREngine, OCRPipeline
+from OCR.utils.ocr_pipeline import BaseOCREngine, PaddleVLOCREngine, create_ocr_engine, OCRPipeline
 
 def test_ocr_checkpoint_manager(tmp_path):
     mgr = OCRCheckpointManager(cache_dir=str(tmp_path / "checkpoints"))
@@ -52,3 +52,27 @@ def test_ocr_pipeline_execution_and_caching(tmp_path):
     # Third run with force_reprocess: re-processed
     res3 = pipeline.process_images([img], source_id="test_scan", force_reprocess=True)
     assert res3["pages"][0]["is_cached"] == False
+
+def test_paddle_vl_ocr_engine_interface(tmp_path):
+    fixtures_dir = Path(__file__).parent / "fixtures"
+    img_path = fixtures_dir / "sample_han_scan.png"
+    img = Image.open(img_path)
+
+    # Test direct PaddleVLOCREngine instantiation (fallback to mock in local test environment)
+    vl_engine = PaddleVLOCREngine(model_id="PaddlePaddle/PaddleOCR-VL-1.6", use_gpu=False)
+    assert vl_engine.model_name == "PaddleOCR-VL-1.6"
+    assert vl_engine.hardware == "cpu"
+    boxes = vl_engine.recognize_image(img)
+    assert len(boxes) > 0
+    assert "text" in boxes[0]
+
+    # Test factory function
+    factory_engine = create_ocr_engine("PaddleOCR-VL-1.6", use_gpu=False)
+    assert factory_engine.model_name == "PaddleOCR-VL-1.6"
+
+    # Test BaseOCREngine routing
+    routed_engine = BaseOCREngine(model_name="PaddleOCR-VL-1.6", use_gpu=False)
+    pipeline = OCRPipeline(engine=routed_engine)
+    res = pipeline.process_images([img], source_id="test_vl_scan")
+    assert len(res["pages"]) == 1
+    assert len(res["full_text"]) > 0

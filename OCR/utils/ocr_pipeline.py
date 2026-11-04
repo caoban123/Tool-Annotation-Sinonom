@@ -15,12 +15,126 @@ from PIL import Image
 from .checkpoints import OCRCheckpointManager
 from .page_order import sort_bounding_boxes
 
+class PaddleVLOCREngine:
+    """
+    Vision-Language OCR Engine utilizing PaddleOCR-VL (0.9B parameter VLM)
+    via Hugging Face transformers.
+    Excels at ancient Sino-Nom documents, complex layouts, and semantic reading order.
+    """
+    def __init__(self, model_id: str = "PaddlePaddle/PaddleOCR-VL-1.6", use_gpu: bool = True):
+        self.model_name = "PaddleOCR-VL-1.6" if "1.6" in model_id else "PaddleOCR-VL"
+        self.model_id = model_id
+        self.use_gpu = use_gpu
+        self.hardware = "cuda" if use_gpu else "cpu"
+        self.processor = None
+        self.model = None
+        self.is_mock = False
+        self._init_engine()
+
+    def _init_engine(self):
+        try:
+            import torch
+            from transformers import AutoModelForImageTextToText, AutoProcessor
+
+            device = "cuda" if (self.use_gpu and torch.cuda.is_available()) else "cpu"
+            self.hardware = device
+            dtype = torch.bfloat16 if device == "cuda" else torch.float32
+
+            print(f"[OCR-VL Engine] Đang tải mô hình Vision-Language '{self.model_id}' từ HuggingFace...")
+            loaded_id = self.model_id
+            try:
+                self.processor = AutoProcessor.from_pretrained(loaded_id, trust_remote_code=True)
+                self.model = AutoModelForImageTextToText.from_pretrained(
+                    loaded_id,
+                    torch_dtype=dtype,
+                    device_map="auto" if device == "cuda" else None,
+                    trust_remote_code=True
+                )
+            except Exception as e_spec:
+                fallback_id = "PaddlePaddle/PaddleOCR-VL"
+                print(f"[OCR-VL Engine] Không tải được '{loaded_id}' ({e_spec}). Đang chuyển sang dự phòng '{fallback_id}'...")
+                self.processor = AutoProcessor.from_pretrained(fallback_id, trust_remote_code=True)
+                self.model = AutoModelForImageTextToText.from_pretrained(
+                    fallback_id,
+                    torch_dtype=dtype,
+                    device_map="auto" if device == "cuda" else None,
+                    trust_remote_code=True
+                )
+                loaded_id = fallback_id
+
+            if device == "cpu" and self.model is not None:
+                self.model = self.model.to("cpu")
+
+            self.engine_type = f"paddleocr_vl (model={loaded_id}, device={device})"
+            print(f"[OCR-VL Engine] ✓ Đã nạp thành công mô hình Vision-Language: {self.engine_type}")
+        except Exception as e:
+            self.processor = None
+            self.model = None
+            self.is_mock = True
+            self.engine_type = f"cpu_test_adapter (PaddleOCR-VL chưa nạp được: {e})"
+            print(f"[OCR-VL Engine] ⚠️ CHÚ Ý: Chưa thể nạp mô hình PaddleOCR-VL ({e}). Chuyển sang chế độ kiểm thử mock adapter.")
+
+    def recognize_image(self, image: Image.Image) -> List[Dict[str, Any]]:
+        """Recognizes text from an image using the Vision-Language Model."""
+        w, h = image.size
+        if not self.is_mock and self.model is not None and self.processor is not None:
+            import torch
+            img_rgb = image.convert("RGB")
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "image": img_rgb},
+                        {"type": "text", "text": "OCR:"}
+                    ]
+                }
+            ]
+            try:
+                text_prompt = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+                inputs = self.processor(text=[text_prompt], images=[img_rgb], return_tensors="pt").to(self.model.device)
+                with torch.no_grad():
+                    outputs = self.model.generate(**inputs, max_new_tokens=2048)
+                generated_text = self.processor.decode(outputs[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True).strip()
+            except Exception as ex:
+                print(f"[OCR-VL Engine] ⚠️ Lỗi inference: {ex}")
+                generated_text = ""
+
+            lines = [line.strip() for line in generated_text.splitlines() if line.strip()]
+            if not lines and generated_text:
+                lines = [generated_text]
+
+            boxes = []
+            line_h = max(20, h // max(1, len(lines)))
+            for idx, line in enumerate(lines):
+                boxes.append({
+                    "bbox": [10, idx * line_h, w - 10, (idx + 1) * line_h],
+                    "text": line,
+                    "confidence": 0.99
+                })
+            return boxes
+        else:
+            return [{
+                "bbox": [20, 30, w - 20, 60],
+                "text": "古南交，周號越裳。",
+                "confidence": 0.98
+            }]
+
 class BaseOCREngine:
     def __init__(self, model_name: str = "PP-OCRv4", use_gpu: bool = False):
         self.model_name = model_name
         self.use_gpu = use_gpu
         self.hardware = "cuda" if use_gpu else "cpu"
-        self._init_engine()
+        self._vl_engine = None
+
+        # Tự động chuyển hướng nếu người dùng truyền mô hình dạng VL
+        if "vl" in str(model_name).lower():
+            model_id = "PaddlePaddle/PaddleOCR-VL-1.6" if "1.6" in str(model_name) else "PaddlePaddle/PaddleOCR-VL"
+            self._vl_engine = PaddleVLOCREngine(model_id=model_id, use_gpu=use_gpu)
+            self.engine_type = self._vl_engine.engine_type
+            self.hardware = self._vl_engine.hardware
+            self.is_mock = self._vl_engine.is_mock
+        else:
+            self._init_engine()
 
     def _init_engine(self):
         self.is_mock = False
@@ -64,6 +178,9 @@ class BaseOCREngine:
 
     def recognize_image(self, image: Image.Image) -> List[Dict[str, Any]]:
         """Recognizes text lines and bboxes from a PIL Image."""
+        if self._vl_engine is not None:
+            return self._vl_engine.recognize_image(image)
+
         if not self.is_mock and self.paddle is not None:
             import numpy as np
             img_arr = np.array(image.convert("RGB"))
@@ -147,6 +264,13 @@ class BaseOCREngine:
                 "text": "古南交，周號越裳。" if "han" in self.model_name.lower() else "Dat Nam Giao xua, nha Chu goi la Viet Thuong.",
                 "confidence": 0.98
             }]
+
+def create_ocr_engine(engine_name: str = "PaddleOCR-VL-1.6", use_gpu: bool = True) -> Any:
+    """Factory function to instantiate the preferred OCR engine."""
+    if "vl" in engine_name.lower():
+        model_id = "PaddlePaddle/PaddleOCR-VL-1.6" if "1.6" in engine_name else "PaddlePaddle/PaddleOCR-VL"
+        return PaddleVLOCREngine(model_id=model_id, use_gpu=use_gpu)
+    return BaseOCREngine(model_name=engine_name, use_gpu=use_gpu)
 
 class OCRPipeline:
     def __init__(
