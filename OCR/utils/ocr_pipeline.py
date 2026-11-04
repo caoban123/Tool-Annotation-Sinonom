@@ -31,8 +31,13 @@ class PaddleVLOCREngine:
         self.is_mock = False
         self._init_engine()
 
-    def _patch_rope_compatibility(self):
-        """Fixes 'PaddleOCRVisionConfig object has no attribute rope_parameters' on transformers 4.48+."""
+    def _patch_transformers_compatibility(self):
+        """
+        Comprehensive shims and monkey-patches for PaddleOCR-VL compatibility
+        across all versions of Hugging Face transformers.
+        """
+        import sys
+        # 1. Patch rope_parameters attribute on PretrainedConfig for transformers 4.48+
         try:
             import transformers.configuration_utils
             if not hasattr(transformers.configuration_utils.PretrainedConfig, "rope_parameters"):
@@ -40,10 +45,32 @@ class PaddleVLOCREngine:
         except Exception:
             pass
 
+        # 2. Shim transformers.masking_utils if missing (in transformers < 4.48)
+        try:
+            import transformers.masking_utils
+        except ImportError:
+            try:
+                import transformers.modeling_attn_mask_utils as _mamu
+                sys.modules['transformers.masking_utils'] = _mamu
+            except Exception:
+                pass
+
+        # 3. Shim use_kernel_forward_from_hub in transformers.integrations if missing
+        try:
+            import transformers.integrations
+            if not hasattr(transformers.integrations, 'use_kernel_forward_from_hub'):
+                def _dummy_kernel_decorator(*args, **kwargs):
+                    def _decorator(func_or_cls):
+                        return func_or_cls
+                    return _decorator
+                setattr(transformers.integrations, 'use_kernel_forward_from_hub', _dummy_kernel_decorator)
+        except Exception:
+            pass
+
     def _load_model_instance(self, model_target: str, device: str, dtype: Any) -> tuple:
+        self._patch_transformers_compatibility()
         from transformers import AutoConfig, AutoModelForCausalLM, AutoModel, AutoProcessor
 
-        self._patch_rope_compatibility()
         config = AutoConfig.from_pretrained(model_target, trust_remote_code=True)
         if hasattr(config, "vision_config") and not hasattr(config.vision_config, "rope_parameters"):
             setattr(config.vision_config, "rope_parameters", None)
@@ -82,6 +109,7 @@ class PaddleVLOCREngine:
 
     def _init_engine(self):
         try:
+            self._patch_transformers_compatibility()
             import torch
 
             device = "cuda" if (self.use_gpu and torch.cuda.is_available()) else "cpu"
