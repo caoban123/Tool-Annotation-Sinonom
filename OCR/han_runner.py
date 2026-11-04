@@ -43,6 +43,7 @@ def run(config, engine=None):
     if not path.is_file():
         raise FileNotFoundError(f'Khong thay tai lieu: {path}')
     count = page_count(path)
+    print(f'[OCR] Input: {path} | {count} trang | Python {platform.python_version()}', flush=True)
     start = config.get('start_page', 1)
     end = config.get('end_page') or count
     if not 1 <= start <= end <= count:
@@ -58,6 +59,9 @@ def run(config, engine=None):
         'model_id', 'model_revision', 'max_new_tokens', 'max_pixels', 'render_scale',
         'reading_order', 'split_spread', 'use_gpu')}
     cache_config['pipeline_version'] = 2
+    # Retry ceiling changes only failed/truncated generations, which are never
+    # cached. Keep existing completed-page keys so a retry can resume page 27
+    # without recomputing pages 1-26.
     signature = hashlib.sha256(json.dumps(cache_config, sort_keys=True).encode()).hexdigest()
     checkpoint_dir = Path(config.get('checkpoint_dir') or output_dir / 'checkpoints')
     manager = OCRCheckpointManager(str(checkpoint_dir))
@@ -71,14 +75,17 @@ def run(config, engine=None):
             print(f'Trang {number}/{end}: cache', flush=True)
             continue
         if engine is None:
+            print(f"[OCR] Đang nạp model {config['model_id']} (use_gpu={config.get('use_gpu', True)})...", flush=True)
             engine = PaddleVLOCREngine(
                 model_id=config['model_id'], use_gpu=config.get('use_gpu', True),
                 max_new_tokens=config.get('max_new_tokens', 4096),
-                max_pixels=config.get('max_pixels', 1003520), revision=config.get('model_revision'))
+                max_pixels=config.get('max_pixels', 1003520), revision=config.get('model_revision'),
+                max_retry_tokens=config.get('max_retry_tokens', 16384))
         if pipeline is None:
             pipeline = OCRPipeline(engine, OCRCheckpointManager(str(output_dir / 'region_cache')),
                                    config.get('reading_order', 'rtl_vertical'))
         image = load_page(path, number, config.get('render_scale', 2.0))
+        print(f'[OCR] Nhận dạng trang {number}/{end}, ảnh {image.width}x{image.height}', flush=True)
         try:
             regions = [image]
             if config.get('split_spread'):

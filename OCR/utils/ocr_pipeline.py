@@ -16,13 +16,17 @@ class PaddleVLOCREngine:
     No fallback to text-only input, another model, or mock results is allowed.
     """
     def __init__(self, model_id="PaddlePaddle/PaddleOCR-VL-1.6", use_gpu=True,
-                 max_new_tokens=4096, max_pixels=1003520, revision=None):
+                 max_new_tokens=4096, max_pixels=1003520, revision=None,
+                 max_retry_tokens=16384):
         if max_new_tokens < 1 or max_pixels < 784:
             raise ValueError("max_new_tokens >= 1; max_pixels >= 784")
         self.model_id = model_id
         self.model_name = model_id
         self.use_gpu = use_gpu
         self.max_new_tokens = max_new_tokens
+        if max_retry_tokens < 1:
+            raise ValueError("max_retry_tokens >= 1")
+        self.max_retry_tokens = max(max_new_tokens, max_retry_tokens)
         self.max_pixels = max_pixels
         self.revision = revision
         self.is_mock = False
@@ -32,6 +36,10 @@ class PaddleVLOCREngine:
     def _init_engine(self):
         import torch
         from transformers import AutoModelForImageTextToText, AutoProcessor
+        from transformers.utils import logging as hf_logging
+        # Per-parameter progress creates hundreds of lines in notebook pipes.
+        # Keep warnings and explicit model/page/retry messages visible.
+        hf_logging.disable_progress_bar()
         if self.use_gpu and not torch.cuda.is_available():
             raise RuntimeError("Không thấy CUDA. Bật GPU trong Colab/Kaggle hoặc chọn USE_GPU=False để chạy CPU chậm.")
         self.hardware = "cuda" if self.use_gpu else "cpu"
@@ -45,6 +53,7 @@ class PaddleVLOCREngine:
             trust_remote_code=False, **kwargs,
         ).to(device=self.hardware, dtype=dtype).eval()
         self.engine_type = f"transformers_native ({self.model_id}, {dtype})"
+        print(f"[OCR] Model sẵn sàng: {self.hardware}, {dtype}; retry tối đa {self.max_retry_tokens} token.", flush=True)
 
     def recognize_image(self, image: Image.Image, show_progress=True):
         import torch
@@ -64,20 +73,35 @@ class PaddleVLOCREngine:
         # Move only floating image tensors to the model precision; keep token IDs integral.
         inputs["pixel_values"] = inputs["pixel_values"].to(dtype=self.model.dtype)
         prompt_len = inputs["input_ids"].shape[-1]
-        with torch.inference_mode():
-            output = self.model.generate(**inputs, max_new_tokens=self.max_new_tokens,
-                                         do_sample=False, use_cache=True)
-        generated = output[0][prompt_len:]
         eos = self.model.generation_config.eos_token_id
         eos_ids = eos if isinstance(eos, list) else [eos]
-        self.last_truncated = len(generated) >= self.max_new_tokens and int(generated[-1]) not in eos_ids
-        if self.last_truncated:
-            raise RuntimeError("OCR đạt max_new_tokens trước EOS; tăng MAX_NEW_TOKENS hoặc chia trang ảnh. Trang này chưa được cache.")
+        budget = self.max_new_tokens
+        ceiling = getattr(self, 'max_retry_tokens', budget)
+        while True:
+            with torch.inference_mode():
+                output = self.model.generate(**inputs, max_new_tokens=budget,
+                                             do_sample=False, use_cache=True)
+            generated = output[0][prompt_len:]
+            self.last_truncated = len(generated) >= budget and int(generated[-1]) not in eos_ids
+            if not self.last_truncated:
+                break
+            if budget >= ceiling:
+                raise RuntimeError(
+                    f"OCR đạt max_new_tokens={budget} trước EOS sau khi thử lại. "
+                    "Trang này chưa được cache. Kiểm tra ảnh/chữ lặp; chia ảnh theo cột "
+                    "hoặc bật SPLIT_SPREAD nếu ảnh có hai mặt sách."
+                )
+            next_budget = min(budget * 2, ceiling)
+            print(f"[OCR] Chạm {budget} token trước EOS; thử lại vùng ảnh với {next_budget} token.", flush=True)
+            del output, generated
+            budget = next_budget
+        self.last_token_budget = budget
         text = self.processor.decode(generated, skip_special_tokens=True).strip()
         if show_progress:
             print(text or "[Trang không có văn bản]")
         return [{"bbox": [0, 0, image.width, image.height], "bbox_type": "page",
-                 "text": text, "confidence": None}] if text else []
+                 "text": text, "confidence": None, "token_budget": budget,
+                 "generated_tokens": len(generated)}] if text else []
 
 class BaseOCREngine:
     """

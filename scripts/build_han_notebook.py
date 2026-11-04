@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def build_ocr_han_notebook():
     files = ['OCR/han_runner.py', 'OCR/utils/__init__.py', 'OCR/utils/ocr_pipeline.py',
              'OCR/utils/checkpoints.py', 'OCR/utils/export_text.py', 'OCR/utils/page_order.py',
-             'OCR/utils/render_pdf.py', 'OCR/requirements-han.txt',
+             'OCR/utils/render_pdf.py', 'OCR/utils/notebook_process.py', 'OCR/requirements-han.txt',
              'OCR/assets/han_demo.png', 'OCR/assets/han_demo.txt']
     payload = json.dumps({name: base64.b64encode((ROOT / name).read_bytes()).decode() for name in files}).encode()
     encoded = base64.b64encode(zlib.compress(payload)).decode()
@@ -54,6 +54,7 @@ def build_ocr_han_notebook():
     MODEL_ID = "PaddlePaddle/PaddleOCR-VL-1.6"
     MODEL_REVISION = None  # Có thể điền commit Hugging Face để tái lập weights
     MAX_NEW_TOKENS = 4096
+    MAX_RETRY_TOKENS = 16384  # Tự tăng 4096 → 8192 → 16384 chỉ khi vùng ảnh thiếu EOS
     MAX_PIXELS = 1003520
     RENDER_SCALE = 2.0
     READING_ORDER = "rtl_vertical"
@@ -168,6 +169,7 @@ def build_ocr_han_notebook():
     config = dict(input_path=str(input_file), start_page=START_PAGE, end_page=end_page,
                   model_id=MODEL_ID, model_revision=MODEL_REVISION, use_gpu=USE_GPU,
                   max_new_tokens=MAX_NEW_TOKENS, max_pixels=MAX_PIXELS, render_scale=RENDER_SCALE,
+                  max_retry_tokens=MAX_RETRY_TOKENS,
                   reading_order=READING_ORDER, split_spread=SPLIT_SPREAD,
                   force_reprocess=FORCE_REPROCESS, output_dir=str(WORK_DIR / 'output'),
                   checkpoint_dir=CHECKPOINT_DIR or str(WORK_DIR / 'output/checkpoints'))
@@ -178,8 +180,11 @@ def build_ocr_han_notebook():
     cell('code', '''
     # 6. OCR thật từng trang, log trực tiếp; dừng ngay nếu model/ảnh bị lỗi
     if not SMOKE:
-        subprocess.run([str(PYTHON), '-u', '-m', 'OCR.han_runner', '--config', str(config_file)],
-                       cwd=str(SOURCE_DIR), env=environment, check=True)
+        import runpy
+        run_logged_process = runpy.run_path(str(SOURCE_DIR / 'OCR/utils/notebook_process.py'))['run_logged_process']
+        run_logged_process(
+            [str(PYTHON), '-u', '-m', 'OCR.han_runner', '--config', str(config_file)],
+            cwd=SOURCE_DIR, env=environment, log_path=WORK_DIR / 'ocr_run.log')
     else:
         print('SMOKE: không nhận dạng và không xuất han.txt.')
     ''')
@@ -208,6 +213,8 @@ def build_ocr_han_notebook():
     ''')
     cell('markdown', '''
     ## Nếu gặp lỗi
+    - Cell 6 hiển thị trực tiếp stdout/stderr của worker và lưu toàn bộ vào `WORK_DIR/ocr_run.log`.
+      Khi lỗi, đọc traceback gốc/cuối log trong RuntimeError, không chỉ mã thoát tiến trình.
     - Thiếu GPU: bật GPU và chạy lại. T4/P100 dùng FP16; GPU hỗ trợ BF16 mới dùng BF16.
     - Không tải được model/package: bật Internet trên Kaggle; kiểm tra quota/mạng Hugging Face.
       Có thể đặt MODEL_ID thành thư mục weights đã đính kèm trong `/kaggle/input`.
@@ -215,7 +222,8 @@ def build_ocr_han_notebook():
     - `torchvision::nms`, `librosa`, `numpy.dtype size changed`: runtime nền đã bị thay thư viện;
       khởi tạo session GPU sạch rồi Run all. Không chạy các cell cài đặt notebook cũ trước notebook này.
     - CUDA out of memory: giảm MAX_PIXELS (ví dụ 501760), bật SPLIT_SPREAD cho ảnh hai mặt.
-    - Chạm giới hạn token: tăng MAX_NEW_TOKENS hoặc cắt nhỏ ảnh. Không cache trang bị cắt cụt.
+    - Chạm giới hạn token: tự thử lại tới MAX_RETRY_TOKENS, vẫn giữ cache các trang đã hoàn tất.
+      Nếu vẫn không có EOS, kiểm tra chữ lặp/cắt nhỏ ảnh theo cột; không cache trang bị cắt cụt.
     - Hết phiên: lưu ZIP/checkpoints. Khi mở phiên mới, đưa checkpoint vào thư mục writable
       và đặt CHECKPOINT_DIR trỏ tới đó. Cache được phân biệt theo hash tài liệu và cấu hình.
 

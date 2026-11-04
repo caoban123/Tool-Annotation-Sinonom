@@ -58,6 +58,51 @@ Checkpoint trong `/content` hoặc `/kaggle/working` tự mất nếu nền tả
 notebook không tự mount Drive. Có thể trỏ `CHECKPOINT_DIR` tới Drive đã được mount.
 Không trỏ checkpoint vào `/kaggle/input` vì đây là vùng chỉ đọc.
 
+## Khi cell 6 báo lỗi
+
+`CalledProcessError: ... exit status 1` chỉ cho biết worker đã dừng; riêng thông báo
+này không xác định được nguyên nhân model, GPU, tài liệu hay mạng.
+
+Bản cập nhật cell 6 chuyển stdout/stderr của worker vào output notebook bằng pipe,
+hiển thị log ngay khi có dữ liệu và lưu toàn bộ tại `WORK_DIR/ocr_run.log`
+(Colab: `/content/han_ocr/ocr_run.log`). Khi thất bại, cell hiển thị phần cuối log
+gồm traceback gốc thay vì chỉ báo lỗi subprocess. Hủy cell cũng dừng worker.
+
+Nếu đang mở bản notebook cũ, có thể lấy lỗi gốc bằng cell chẩn đoán sau, sau khi
+đã chạy các cell cấu hình/cài đặt trước đó. Lệnh này có thể chạy lại inference
+trang chưa có checkpoint; không dùng kết quả mock hoặc bỏ qua lỗi.
+
+```python
+r = subprocess.run(
+    [str(PYTHON), '-u', '-m', 'OCR.han_runner', '--config', str(config_file)],
+    cwd=str(SOURCE_DIR), env=environment,
+    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    text=True, encoding='utf-8', errors='replace'
+)
+print(r.stdout)
+print('Exit code:', r.returncode)
+```
+
+Giữ lại traceback gốc để xác định cách sửa. Không đổi phiên bản thư viện, tắt
+kiểm tra kết quả hoặc chuyển sang CPU chỉ dựa trên mã thoát 1.
+
+### Trang 27 dừng do giới hạn token
+
+Log Colab đã xác nhận 26 trang đầu được nạp từ cache; trang 27 thất bại vì
+`max_new_tokens` được dùng hết trước EOS. Model đã nạp thành công; cảnh báo
+HF token, fast processor và RoPE trong log đó không phải lỗi khiến tiến trình dừng.
+
+Bản sửa giữ ngân sách ban đầu 4096 và tự thử lại **chỉ vùng ảnh chưa hoàn tất** với
+8192 rồi tối đa `MAX_RETRY_TOKENS=16384`. Nếu vẫn thiếu EOS thì dừng, không cache
+hay xuất văn bản bị cắt cụt. Kiểm tra ảnh/chữ lặp và chia vùng theo cột khi cần;
+không đảm bảo tăng token sẽ khắc phục mọi trang khó.
+
+Giữ `MAX_NEW_TOKENS`, `MAX_PIXELS`, `SPLIT_SPREAD` và các cấu hình cũ để dùng lại
+cache trang 1–26; đặt `FORCE_REPROCESS=False`. Trần retry mới không làm thay đổi
+khóa cache của các trang đã kết thúc đầy đủ. Không cần xóa cache, tải lại weights
+hoặc restart runtime chỉ để áp dụng bản sửa này. Tăng trần có thể làm trang khó
+chạy lâu hơn và dùng thêm bộ nhớ GPU.
+
 ## Kiểm chứng và giới hạn
 
 Môi trường kiểm thử: Windows, Python 3.10.5; môi trường CPU bổ sung có

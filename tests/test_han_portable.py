@@ -38,6 +38,7 @@ def test_runner_pdf_export_and_resume(tmp_path):
     calls = engine.calls
     assert calls == result['total_pages']
     assert all(p['page_number'] == i + 1 for i, p in enumerate(result['pages']))
+    config['max_retry_tokens'] = 16384
     resumed = run(config, engine)
     assert engine.calls == calls
     assert all(p['is_cached'] for p in resumed['pages'])
@@ -209,3 +210,81 @@ def test_native_generation_with_tiny_random_model():
             max_new_tokens=2, do_sample=False, use_cache=True)
     assert result.shape[0] == 1
     assert result.shape[1] > 5
+
+
+@pytest.fixture
+def retry_engine():
+    torch = pytest.importorskip('torch')
+    from types import SimpleNamespace
+    from OCR.utils.ocr_pipeline import PaddleVLOCREngine
+
+    class Inputs(dict):
+        def to(self, device):
+            return self
+
+    class Processor:
+        image_processor = SimpleNamespace(min_pixels=784)
+        def apply_chat_template(self, *args, **kwargs):
+            return Inputs(input_ids=torch.tensor([[7, 8]]), pixel_values=torch.zeros(1))
+        def decode(self, tokens, **kwargs):
+            assert int(tokens[-1]) == 2, 'Never accept or decode a truncated attempt as final text'
+            return '辨識完整文字'
+
+    class Model:
+        device = 'cpu'
+        dtype = torch.float32
+        generation_config = SimpleNamespace(eos_token_id=2)
+        finish_at = 4
+        failure = None
+        def __init__(self):
+            self.budgets = []
+        def generate(self, **kwargs):
+            budget = kwargs['max_new_tokens']
+            self.budgets.append(budget)
+            if self.failure:
+                raise self.failure
+            generated = [11] * budget
+            if self.finish_at is not None and budget >= self.finish_at:
+                generated[-1] = 2
+            return torch.tensor([[7, 8] + generated])
+
+    engine = PaddleVLOCREngine.__new__(PaddleVLOCREngine)
+    engine.model, engine.processor = Model(), Processor()
+    engine.max_new_tokens, engine.max_retry_tokens, engine.max_pixels = 2, 8, 200704
+    engine.model_name = engine.engine_type = 'native_contract'
+    engine.hardware, engine.is_mock = 'cpu', False
+    return engine
+
+
+def test_truncated_page_retries_then_caches_complete_result(retry_engine, tmp_path):
+    from OCR.utils.ocr_pipeline import OCRPipeline
+    from OCR.utils.checkpoints import OCRCheckpointManager
+    pipeline = OCRPipeline(retry_engine, OCRCheckpointManager(str(tmp_path)))
+    image = Image.new('RGB', (30, 40))
+    result = pipeline.process_images([image], source_id='book', start_page=27)
+    assert retry_engine.model.budgets == [2, 4]
+    assert retry_engine.last_truncated is False
+    assert result['pages'][0]['page_number'] == 27
+    assert result['pages'][0]['boxes'][0]['token_budget'] == 4
+    assert result['full_text'] == '辨識完整文字'
+    result = pipeline.process_images([image], source_id='book', start_page=27)
+    assert result['pages'][0]['is_cached']
+    assert retry_engine.model.budgets == [2, 4]
+
+
+def test_retry_limit_still_rejects_truncated_page(retry_engine, tmp_path):
+    from OCR.utils.ocr_pipeline import OCRPipeline
+    from OCR.utils.checkpoints import OCRCheckpointManager
+    retry_engine.model.finish_at = None
+    pipeline = OCRPipeline(retry_engine, OCRCheckpointManager(str(tmp_path)))
+    with pytest.raises(RuntimeError, match='max_new_tokens=8'):
+        pipeline.process_images([Image.new('RGB', (30, 40))], start_page=27)
+    assert retry_engine.model.budgets == [2, 4, 8]
+    assert not list(tmp_path.glob('*.json'))
+
+
+def test_other_inference_errors_do_not_trigger_token_retry(retry_engine):
+    retry_engine.model.failure = ValueError('unrelated inference error')
+    with pytest.raises(ValueError, match='unrelated inference error'):
+        retry_engine.recognize_image(Image.new('RGB', (30, 40)))
+    assert retry_engine.model.budgets == [2]
