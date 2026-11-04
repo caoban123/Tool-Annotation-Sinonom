@@ -122,9 +122,14 @@ class PaddleVLOCREngine:
         if model is None:
             raise RuntimeError(f"Không thể khởi tạo {model_target} qua AutoModelForCausalLM / AutoModel: {last_err}")
 
+        # Tắt kiểm tra model_kwargs khắt khe của generation trên mô hình VLM
+        model._validate_model_kwargs = lambda *a, **kw: None
+
         # Tự động vá cache_position để tương thích với cơ chế KV cache của Transformers mới
+        import functools
         if hasattr(model, "prepare_inputs_for_generation"):
             orig_prep = model.prepare_inputs_for_generation
+            @functools.wraps(orig_prep)
             def safe_prep(input_ids, **kwargs):
                 import torch
                 if kwargs.get("cache_position") is None:
@@ -149,6 +154,7 @@ class PaddleVLOCREngine:
 
         if hasattr(model, "forward"):
             orig_fwd = model.forward
+            @functools.wraps(orig_fwd)
             def safe_fwd(*args, **kwargs):
                 import torch
                 if kwargs.get("cache_position") is None:
