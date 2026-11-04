@@ -106,17 +106,17 @@ class PaddleVLOCREngine:
                     import functools
                     @functools.wraps(_orig_pma)
                     def _safe_pma(*args, **kwargs):
-                        pos_ids = kwargs.get("position_ids")
-                        if pos_ids is None and len(args) > 5:
-                            pos_ids = args[5]
-                        if pos_ids is not None and getattr(pos_ids, "ndim", 0) > 2:
-                            if "position_ids" in kwargs:
+                        import torch
+                        if "position_ids" in kwargs and kwargs["position_ids"] is not None:
+                            if getattr(kwargs["position_ids"], "ndim", 0) > 2:
                                 kwargs["position_ids"] = None
-                            elif len(args) > 5:
-                                al = list(args)
-                                al[5] = None
-                                args = tuple(al)
-                        return _orig_pma(*args, **kwargs)
+                        new_args = []
+                        for a in args:
+                            if getattr(a, "ndim", 0) > 2 and getattr(a, "dtype", None) in (torch.int64, torch.int32):
+                                new_args.append(None)
+                            else:
+                                new_args.append(a)
+                        return _orig_pma(*new_args, **kwargs)
                     _safe_pma._is_paddle_3d_patched = True
                     _t_mu._preprocess_mask_arguments = _safe_pma
         except Exception:
@@ -145,16 +145,23 @@ class PaddleVLOCREngine:
 
                     @functools.wraps(fn)
                     def _safe_create_causal_mask(*args, **kwargs):
+                        import torch
                         if not accepts_cp:
                             kwargs.pop("cache_position", None)
                         if not accepts_inputs and accepts_input and "inputs_embeds" in kwargs:
                             kwargs["input_embeds"] = kwargs.pop("inputs_embeds")
                         elif not accepts_input and accepts_inputs and "input_embeds" in kwargs:
                             kwargs["inputs_embeds"] = kwargs.pop("input_embeds")
-                        pos_ids = kwargs.get("position_ids")
-                        if pos_ids is not None and getattr(pos_ids, "ndim", 0) > 2:
-                            kwargs["position_ids"] = None
-                        return fn(*args, **kwargs)
+                        if "position_ids" in kwargs and kwargs["position_ids"] is not None:
+                            if getattr(kwargs["position_ids"], "ndim", 0) > 2:
+                                kwargs["position_ids"] = None
+                        new_args = []
+                        for a in args:
+                            if getattr(a, "ndim", 0) > 2 and getattr(a, "dtype", None) in (torch.int64, torch.int32):
+                                new_args.append(None)
+                            else:
+                                new_args.append(a)
+                        return fn(*new_args, **kwargs)
 
                     _safe_create_causal_mask._is_paddle_patched = True
                     setattr(target, "create_causal_mask", _safe_create_causal_mask)
