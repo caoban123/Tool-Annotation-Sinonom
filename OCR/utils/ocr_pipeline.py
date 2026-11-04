@@ -122,6 +122,44 @@ class PaddleVLOCREngine:
         if model is None:
             raise RuntimeError(f"Không thể khởi tạo {model_target} qua AutoModelForCausalLM / AutoModel: {last_err}")
 
+        # Tự động vá cache_position để tương thích với cơ chế KV cache của Transformers mới
+        if hasattr(model, "prepare_inputs_for_generation"):
+            orig_prep = model.prepare_inputs_for_generation
+            def safe_prep(input_ids, **kwargs):
+                import torch
+                if kwargs.get("cache_position") is None:
+                    pkv = kwargs.get("past_key_values")
+                    seq_len = input_ids.shape[1] if input_ids is not None else 1
+                    dev = input_ids.device if input_ids is not None else model.device
+                    past_len = 0
+                    if pkv is not None:
+                        if hasattr(pkv, "get_seq_length"):
+                            past_len = pkv.get_seq_length()
+                        elif isinstance(pkv, (list, tuple)) and len(pkv) > 0:
+                            try:
+                                past_len = pkv[0][0].shape[-2]
+                            except Exception:
+                                past_len = 0
+                    kwargs["cache_position"] = torch.arange(past_len, past_len + seq_len, device=dev)
+                res = orig_prep(input_ids, **kwargs)
+                if isinstance(res, dict) and res.get("cache_position") is None:
+                    res["cache_position"] = kwargs.get("cache_position")
+                return res
+            model.prepare_inputs_for_generation = safe_prep
+
+        if hasattr(model, "forward"):
+            orig_fwd = model.forward
+            def safe_fwd(*args, **kwargs):
+                import torch
+                if kwargs.get("cache_position") is None:
+                    inp = kwargs.get("input_ids")
+                    if inp is not None:
+                        kwargs["cache_position"] = torch.arange(0, inp.shape[1], device=inp.device)
+                    elif len(args) > 0 and isinstance(args[0], torch.Tensor):
+                        kwargs["cache_position"] = torch.arange(0, args[0].shape[1], device=args[0].device)
+                return orig_fwd(*args, **kwargs)
+            model.forward = safe_fwd
+
         return processor, model
 
     def _init_engine(self):
@@ -196,6 +234,9 @@ class PaddleVLOCREngine:
                     except Exception:
                         inputs = self.processor(images=img_rgb, text=text_prompt, return_tensors="pt").to(self.model.device)
 
+                if inputs is not None and "input_ids" in inputs and "cache_position" not in inputs:
+                    inputs["cache_position"] = torch.arange(0, inputs["input_ids"].shape[1], device=self.model.device)
+
                 with torch.no_grad():
                     outputs = self.model.generate(**inputs, max_new_tokens=2048)
 
@@ -203,13 +244,13 @@ class PaddleVLOCREngine:
                 if hasattr(self.processor, "batch_decode"):
                     try:
                         decoded_list = self.processor.batch_decode(outputs, skip_special_tokens=True)
-                        if decoded_list:
-                            generated_text = decoded_list[0]
+                        if decoded_list and isinstance(decoded_list, (list, tuple)):
+                            generated_text = str(decoded_list[0])
                     except Exception:
                         pass
 
-                if not generated_text:
-                    prompt_len = inputs["input_ids"].shape[-1] if "input_ids" in inputs else 0
+                if not generated_text and outputs is not None and len(outputs) > 0:
+                    prompt_len = inputs["input_ids"].shape[-1] if (inputs is not None and "input_ids" in inputs) else 0
                     generated_text = self.processor.decode(outputs[0][prompt_len:], skip_special_tokens=True).strip()
 
                 if "assistant\n" in generated_text:
@@ -217,7 +258,9 @@ class PaddleVLOCREngine:
                 elif generated_text.startswith("OCR:"):
                     generated_text = generated_text[4:].strip()
             except Exception as ex:
-                print(f"[OCR-VL Engine] ⚠️ Lỗi inference: {ex}")
+                import traceback
+                print(f"[OCR-VL Engine] ⚠️ Lỗi inference ({type(ex).__name__}): {ex}")
+                traceback.print_exc(limit=3)
                 generated_text = ""
 
             lines = [line.strip() for line in generated_text.splitlines() if line.strip()]
