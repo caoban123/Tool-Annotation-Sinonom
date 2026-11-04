@@ -331,7 +331,7 @@ class PaddleVLOCREngine:
                 f"Yêu cầu môi trường GPU và thư viện tương thích 'transformers>=5.0.0'."
             ) from e
 
-    def recognize_image(self, image: Image.Image) -> List[Dict[str, Any]]:
+    def recognize_image(self, image: Image.Image, show_progress: bool = True) -> List[Dict[str, Any]]:
         """Recognizes text lines from an image using the real Vision-Language Model."""
         if self.model is None or self.processor is None:
             raise RuntimeError("Mô hình PaddleOCR-VL chưa được nạp. Không thể thực hiện suy luận.")
@@ -339,6 +339,16 @@ class PaddleVLOCREngine:
         w, h = image.size
         import torch
         img_rgb = image.convert("RGB")
+
+        # 1. Tối ưu kích thước ảnh (tránh bùng nổ token thị giác làm đơ hoặc treo GPU)
+        max_edge = 1536
+        if max(img_rgb.size) > max_edge:
+            ratio = max_edge / max(img_rgb.size)
+            new_size = (int(img_rgb.width * ratio), int(img_rgb.height * ratio))
+            img_rgb = img_rgb.resize(new_size, Image.Resampling.LANCZOS)
+            if show_progress:
+                print(f"[OCR-VL] Đã tối ưu kích thước ảnh từ ({w}, {h}) -> {img_rgb.size} để tăng tốc GPU.")
+
         messages = [
             {
                 "role": "user",
@@ -349,55 +359,63 @@ class PaddleVLOCREngine:
             }
         ]
 
-        inputs = None
+        # 2. Xây dựng prompt chuẩn (tokenize=False) để processor xử lý trọn vẹn cả text và ảnh
         if hasattr(self.processor, "apply_chat_template"):
             try:
-                inputs = self.processor.apply_chat_template(
-                    messages,
-                    tokenize=True,
-                    add_generation_prompt=True,
-                    return_dict=True,
-                    return_tensors="pt"
-                ).to(self.model.device)
+                text_prompt = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             except Exception:
-                inputs = None
-
-        if inputs is None:
+                text_prompt = "OCR:"
+        else:
             text_prompt = "OCR:"
-            if hasattr(self.processor, "apply_chat_template"):
-                try:
-                    text_prompt = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-                except Exception:
-                    pass
+
+        try:
+            inputs = self.processor(text=[text_prompt], images=[img_rgb], return_tensors="pt").to(self.model.device)
+        except Exception:
             try:
-                inputs = self.processor(text=[text_prompt], images=[img_rgb], return_tensors="pt").to(self.model.device)
-            except Exception:
                 inputs = self.processor(images=img_rgb, text=text_prompt, return_tensors="pt").to(self.model.device)
+            except Exception:
+                inputs = self.processor(text=[text_prompt], return_tensors="pt").to(self.model.device)
 
         if inputs is not None and "input_ids" in inputs:
             inputs.pop("cache_position", None)
             if "attention_mask" not in inputs:
                 inputs["attention_mask"] = torch.ones_like(inputs["input_ids"])
 
+        # 3. Vá tương thích động
         self._patch_all_causal_masks()
         self._patch_prepare_inputs_for_generation(self.model)
         self._patch_prepare_inputs_for_generation(self.model.__class__)
 
-        with torch.no_grad():
-            outputs = self.model.generate(**inputs, max_new_tokens=2048)
-
-        generated_text = ""
-        if hasattr(self.processor, "batch_decode"):
+        # 4. Streamer hiển thị chữ trực tiếp theo thời gian thực (chống cảm giác chờ đợi)
+        streamer = None
+        if show_progress:
             try:
-                decoded_list = self.processor.batch_decode(outputs, skip_special_tokens=True)
-                if decoded_list and isinstance(decoded_list, (list, tuple)):
-                    generated_text = str(decoded_list[0])
+                from transformers import TextStreamer
+                tokenizer = getattr(self.processor, "tokenizer", None)
+                if tokenizer is not None:
+                    streamer = TextStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+                print("[OCR-VL] 🚀 Bắt đầu suy luận mô hình (Streaming văn bản trực tiếp)...")
             except Exception:
                 pass
 
-        if not generated_text and outputs is not None and len(outputs) > 0:
-            prompt_len = inputs["input_ids"].shape[-1] if (inputs is not None and "input_ids" in inputs) else 0
-            generated_text = self.processor.decode(outputs[0][prompt_len:], skip_special_tokens=True).strip()
+        prompt_len = inputs["input_ids"].shape[-1] if (inputs is not None and "input_ids" in inputs) else 0
+        with torch.no_grad():
+            outputs = self.model.generate(
+                **inputs,
+                max_new_tokens=1024,
+                do_sample=False,
+                repetition_penalty=1.1,
+                streamer=streamer
+            )
+
+        generated_text = ""
+        if outputs is not None and len(outputs) > 0:
+            if hasattr(self.processor, "decode"):
+                generated_text = self.processor.decode(outputs[0][prompt_len:], skip_special_tokens=True).strip()
+            elif hasattr(self.processor, "batch_decode"):
+                decoded_list = self.processor.batch_decode(outputs, skip_special_tokens=True)
+                if decoded_list and isinstance(decoded_list, (list, tuple)):
+                    generated_text = str(decoded_list[0]).strip()
 
         if "assistant\n" in generated_text:
             generated_text = generated_text.split("assistant\n", 1)[-1].strip()
@@ -567,7 +585,13 @@ class OCRPipeline:
         pages_result = []
         total_time = 0.0
 
-        for idx, item in enumerate(images):
+        try:
+            from tqdm.auto import tqdm
+            pbar = tqdm(images, desc=f"Tiến độ OCR ({source_id})", unit="trang")
+        except Exception:
+            pbar = images
+
+        for idx, item in enumerate(pbar):
             if isinstance(item, tuple) and len(item) == 2 and isinstance(item[0], int):
                 page_num, img = item
             else:
@@ -581,11 +605,13 @@ class OCRPipeline:
                 cached_copy = dict(cached)
                 cached_copy["is_cached"] = True
                 pages_result.append(cached_copy)
+                if hasattr(pbar, "set_postfix"):
+                    pbar.set_postfix({"Trang": page_num, "Trạng thái": "Nạp từ Cache", "Thời gian": "0.0s"})
                 continue
 
             t0 = time.time()
             try:
-                detected_boxes = self.engine.recognize_image(img)
+                detected_boxes = self.engine.recognize_image(img, show_progress=False)
             except Exception as e:
                 import traceback
                 traceback.print_exc()
@@ -613,6 +639,8 @@ class OCRPipeline:
                 self.checkpoints.save_cached_result(page_key, page_data)
 
             pages_result.append(page_data)
+            if hasattr(pbar, "set_postfix"):
+                pbar.set_postfix({"Trang": page_num, "Trạng thái": f"{len(sorted_boxes)} dòng", "Thời gian": f"{dur:.1f}s"})
 
         full_text = "\n".join(p["text"] for p in pages_result if p.get("text"))
 
