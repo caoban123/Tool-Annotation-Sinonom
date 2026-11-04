@@ -31,10 +31,45 @@ class PaddleVLOCREngine:
         self.is_mock = False
         self._init_engine()
 
+    def _patch_rope_compatibility(self):
+        """Fixes 'PaddleOCRVisionConfig object has no attribute rope_parameters' on transformers 4.48+."""
+        try:
+            import transformers.configuration_utils
+            if not hasattr(transformers.configuration_utils.PretrainedConfig, "rope_parameters"):
+                transformers.configuration_utils.PretrainedConfig.rope_parameters = None
+        except Exception:
+            pass
+
+    def _load_model_instance(self, model_target: str, device: str, dtype: Any) -> tuple:
+        from transformers import AutoConfig, AutoModelForImageTextToText, AutoProcessor
+
+        self._patch_rope_compatibility()
+        config = AutoConfig.from_pretrained(model_target, trust_remote_code=True)
+        if hasattr(config, "vision_config") and not hasattr(config.vision_config, "rope_parameters"):
+            setattr(config.vision_config, "rope_parameters", None)
+            type(config.vision_config).rope_parameters = None
+        if hasattr(config, "text_config") and not hasattr(config.text_config, "rope_parameters"):
+            setattr(config.text_config, "rope_parameters", None)
+            type(config.text_config).rope_parameters = None
+
+        processor = AutoProcessor.from_pretrained(model_target, trust_remote_code=True)
+        
+        # Thử nạp model với tham số dtype tương thích
+        load_kwargs = {
+            "config": config,
+            "device_map": "auto" if device == "cuda" else None,
+            "trust_remote_code": True
+        }
+        try:
+            model = AutoModelForImageTextToText.from_pretrained(model_target, dtype=dtype, **load_kwargs)
+        except TypeError:
+            model = AutoModelForImageTextToText.from_pretrained(model_target, torch_dtype=dtype, **load_kwargs)
+
+        return processor, model
+
     def _init_engine(self):
         try:
             import torch
-            from transformers import AutoModelForImageTextToText, AutoProcessor
 
             device = "cuda" if (self.use_gpu and torch.cuda.is_available()) else "cpu"
             self.hardware = device
@@ -43,23 +78,11 @@ class PaddleVLOCREngine:
             print(f"[OCR-VL Engine] Đang tải mô hình Vision-Language '{self.model_id}' từ HuggingFace...")
             loaded_id = self.model_id
             try:
-                self.processor = AutoProcessor.from_pretrained(loaded_id, trust_remote_code=True)
-                self.model = AutoModelForImageTextToText.from_pretrained(
-                    loaded_id,
-                    torch_dtype=dtype,
-                    device_map="auto" if device == "cuda" else None,
-                    trust_remote_code=True
-                )
+                self.processor, self.model = self._load_model_instance(loaded_id, device, dtype)
             except Exception as e_spec:
                 fallback_id = "PaddlePaddle/PaddleOCR-VL"
-                print(f"[OCR-VL Engine] Không tải được '{loaded_id}' ({e_spec}). Đang chuyển sang dự phòng '{fallback_id}'...")
-                self.processor = AutoProcessor.from_pretrained(fallback_id, trust_remote_code=True)
-                self.model = AutoModelForImageTextToText.from_pretrained(
-                    fallback_id,
-                    torch_dtype=dtype,
-                    device_map="auto" if device == "cuda" else None,
-                    trust_remote_code=True
-                )
+                print(f"[OCR-VL Engine] Thử khắc phục/dự phòng sang '{fallback_id}' (lý do: {e_spec})...")
+                self.processor, self.model = self._load_model_instance(fallback_id, device, dtype)
                 loaded_id = fallback_id
 
             if device == "cpu" and self.model is not None:
@@ -90,11 +113,28 @@ class PaddleVLOCREngine:
                 }
             ]
             try:
-                text_prompt = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-                inputs = self.processor(text=[text_prompt], images=[img_rgb], return_tensors="pt").to(self.model.device)
+                text_prompt = None
+                if hasattr(self.processor, "apply_chat_template"):
+                    try:
+                        text_prompt = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+                    except Exception:
+                        text_prompt = None
+
+                if not text_prompt:
+                    text_prompt = "OCR:"
+
+                try:
+                    inputs = self.processor(text=[text_prompt], images=[img_rgb], return_tensors="pt").to(self.model.device)
+                except Exception:
+                    inputs = self.processor(images=img_rgb, text=text_prompt, return_tensors="pt").to(self.model.device)
+
                 with torch.no_grad():
                     outputs = self.model.generate(**inputs, max_new_tokens=2048)
-                generated_text = self.processor.decode(outputs[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True).strip()
+
+                prompt_len = inputs["input_ids"].shape[-1] if "input_ids" in inputs else 0
+                generated_text = self.processor.decode(outputs[0][prompt_len:], skip_special_tokens=True).strip()
+                if not generated_text:
+                    generated_text = self.processor.decode(outputs[0], skip_special_tokens=True).strip()
             except Exception as ex:
                 print(f"[OCR-VL Engine] ⚠️ Lỗi inference: {ex}")
                 generated_text = ""

@@ -269,7 +269,7 @@ def build_ocr_han_notebook():
                 "            \n",
                 "    # Cài đặt toàn bộ thư viện bắt buộc cho OCR AI (bao gồm Hugging Face cho PaddleOCR-VL)\n",
                 "    print('Đang nạp các thư viện OCR và mô hình AI...')\n",
-                "    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'pypdf', 'pypdfium2', 'pillow', 'pydantic', 'requests', 'gdown', 'transformers>=4.40.0', 'accelerate', 'paddlepaddle', 'paddleocr<3.0.0'], check=False)\n",
+                "    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'pypdf', 'pypdfium2', 'pillow', 'pydantic', 'requests', 'gdown', 'transformers>=4.42.0,<4.48.0', 'accelerate', 'paddlepaddle', 'paddleocr<3.0.0'], check=False)\n",
                 "\n",
                 "REPO_ROOT = Path('.').resolve()\n",
                 "while REPO_ROOT.name and not (REPO_ROOT / 'OCR').exists() and REPO_ROOT != REPO_ROOT.parent:\n",
