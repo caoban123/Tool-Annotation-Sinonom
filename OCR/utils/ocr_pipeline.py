@@ -96,7 +96,29 @@ class PaddleVLOCREngine:
         except Exception:
             pass
 
-        # 3. Shim use_kernel_forward_from_hub in transformers.integrations if missing
+        # 3. Shim transformers.modeling_layers if missing (introduced in transformers 4.49+)
+        try:
+            import transformers.modeling_layers
+        except ImportError:
+            try:
+                import types
+                ml_shim = types.ModuleType("transformers.modeling_layers")
+                import torch.nn as nn
+                class GradientCheckpointingLayer(nn.Module):
+                    pass
+                setattr(ml_shim, "GradientCheckpointingLayer", GradientCheckpointingLayer)
+                try:
+                    import transformers.modeling_outputs as _tmo
+                    for k in dir(_tmo):
+                        if not k.startswith("_"):
+                            setattr(ml_shim, k, getattr(_tmo, k))
+                except Exception:
+                    pass
+                sys.modules['transformers.modeling_layers'] = ml_shim
+            except Exception:
+                pass
+
+        # 4. Shim use_kernel_forward_from_hub in transformers.integrations if missing
         try:
             import transformers.integrations
             if not hasattr(transformers.integrations, 'use_kernel_forward_from_hub'):

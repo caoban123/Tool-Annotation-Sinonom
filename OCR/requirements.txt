@@ -4,7 +4,7 @@ pypdf>=4.1.0
 gdown>=5.1.0
 numpy>=1.26.0
 # Vision-Language OCR (PaddleOCR-VL-1.6 / Hugging Face):
-transformers>=4.40.0,<4.49.0
+transformers>=4.49.0
 accelerate>=0.28.0
 # Optional / Colab / Paddle Engine:
 # paddlepaddle-gpu>=2.6.0; sys_platform != 'win32'
