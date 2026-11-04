@@ -2,6 +2,7 @@ import os
 import json
 import hashlib
 import logging
+import tempfile
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -109,8 +110,15 @@ class OCRCheckpointManager:
 
         path = self.cache_dir / f"{page_key}.json"
         try:
-            with open(path, "w", encoding="utf-8") as f:
+            # Write beside the target, then atomically replace it. A disconnect
+            # cannot leave a half-written checkpoint presented as completed.
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8",
+                                             dir=self.cache_dir, delete=False) as f:
+                temporary = Path(f.name)
                 json.dump(data, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            temporary.replace(path)
             return True
         except Exception as e:
             logger.error(f"[Checkpoint] Lỗi ghi file checkpoint: {e}")

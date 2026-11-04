@@ -1,0 +1,7 @@
+﻿# Native API; no remote-code patches. torch>=2.4 supplied by the GPU runtime.
+transformers==5.1.0
+accelerate>=1.2,<2
+pillow>=10.2,<13
+pypdfium2>=4.28,<6
+sentencepiece>=0.2,<1
+tqdm>=4.66,<5

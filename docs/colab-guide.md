@@ -29,21 +29,26 @@ Dành cho các thành viên cần xử lý file scan nặng hoặc muốn tận 
 
 ---
 
-## 1. Hướng Dẫn Chạy OCR Chữ Hán / Việt Trên Colab
-1. Mở [Google Colab](https://colab.research.google.com).
-2. Chọn **Runtime** $\rightarrow$ **Change runtime type** $\rightarrow$ Chọn **T4 GPU**.
-3. Upload thư mục `OCR/` và tải notebook `OCR/notebooks/01_OCR_Han.ipynb` (hoặc `02_OCR_Viet.ipynb`) lên Colab.
-4. Cài đặt PaddleOCR GPU:
-   ```bash
-   !pip install paddlepaddle-gpu paddleocr pypdfium2 pillow
-   ```
-5. Đổi biến cấu hình:
-   ```python
-   USE_GPU = True
-   MODEL_NAME = "PaddleOCR-VL-1.6"
-   INPUT_IMAGE_OR_PDF = "/content/ten_sach_scan.pdf"
-   ```
-6. Chạy toàn bộ notebook: Kết quả `han.txt` (hoặc `viet.txt`) sẽ được lưu vào thư mục `data/ocr_output/` và tải về máy tính để import vào Web Studio.
+## 1. OCR chữ Hán trên Colab và Kaggle
+
+Bản `OCR/notebooks/01_OCR_Han.ipynb` hiện tại tự mang mã nguồn OCR, không cần upload thư mục OCR hay clone GitHub.
+
+1. Upload file `.ipynb` lên Colab hoặc Kaggle.
+2. Colab: bật GPU trong Runtime. Kaggle: bật GPU và Internet trong Settings.
+3. Upload PDF/ảnh (Colab: bảng Files; Kaggle: Add Input).
+4. Điền `INPUT_PATH` ở cell đầu, ví dụ `/content/sach.pdf` hoặc `/kaggle/input/dataset/sach.pdf`.
+5. Chọn `START_PAGE`, `END_PAGE` và Run all. Chưa có đầu vào thì chạy ảnh minh họa đi kèm,
+   có thông báo rõ. Đặt `USE_DEMO_IF_NO_INPUT=False` để yêu cầu tài liệu của bạn.
+6. Notebook tự cài Transformers 5.1.0 vào venv riêng, dùng PyTorch/CUDA có sẵn.
+   Không chạy lệnh cài PaddlePaddle hoặc các bản vá attention từ notebook cũ.
+7. Tải `han_ocr.zip`, gồm `han.txt`, metadata và checkpoint. Colab tự mở tải ZIP;
+   Kaggle lấy từ `/kaggle/working/han_ocr/output/`.
+
+Nếu ảnh là hai mặt sách Hán dọc, bật `SPLIT_SPREAD=True` để đọc nửa phải trước nửa trái.
+Giới hạn token không được coi là trang hoàn tất: tăng `MAX_NEW_TOKENS` hoặc chia nhỏ ảnh khi có lỗi.
+Xem [hướng dẫn và kết quả kiểm thử bản sửa](../OCR/PORTABLE_HAN.md).
+
+Notebook tiếng Việt có quy trình riêng; thay đổi này tập trung notebook Hán.
 
 ## 2. Hướng Dẫn Chạy Gợi Ý Dóng Hàng Semantic Alignment Trên Colab
 1. Trong Web Studio trên máy cá nhân, vào Workspace $\rightarrow$ bấm **"Gợi ý AI"** $\rightarrow$ nhấp vào link tải **`segments.jsonl`**.

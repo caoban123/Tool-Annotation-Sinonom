@@ -13,3 +13,11 @@ Module OCR cung cấp quy trình nhận dạng ký tự quang học (OCR) cho t�
 pip install -r OCR/requirements.txt
 ```
 *(Nếu sử dụng GPU trên Colab, cài thêm `paddlepaddle-gpu` và `paddleocr`)*.
+
+## Notebook Hán trên Kaggle/Colab (bản sửa 04/11/2026)
+
+Upload trực tiếp `notebooks/01_OCR_Han.ipynb`, bật GPU/Internet, điền `INPUT_PATH`
+và Run all. Notebook tự mang mã nguồn, dùng Transformers native 5.1.0 trong venv riêng;
+không cần PaddlePaddle và không cài lại torch/torchvision trên runtime GPU chuẩn.
+Hướng dẫn chi tiết: [PORTABLE_HAN.md](PORTABLE_HAN.md).
+Lệnh cài PaddlePaddle ở trên chỉ dành cho adapter OCR cổ điển, không dành cho notebook Hán mới.

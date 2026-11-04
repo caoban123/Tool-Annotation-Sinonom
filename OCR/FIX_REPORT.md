@@ -1,3 +1,7 @@
+> **Cập nhật 04/11/2026:** Phần vá attention/cache mô tả bên dưới là lịch sử và đã được thay thế.
+> Notebook Hán hiện dùng API native Transformers, không áp dụng các monkey patch này.
+> Xem [báo cáo bản portable](PORTABLE_HAN.md) để biết cách chạy và giới hạn kiểm chứng hiện tại.
+
 # BÁO CÁO TOÀN DIỆN: SỬA LỖI, TÁI CẤU TRÚC VÀ KIỂM THỬ END-TO-END PADDLEOCR-VL-1.6
 
 ---

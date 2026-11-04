@@ -1,3 +1,8 @@
+> **Cập nhật OCR Hán 04/11/2026:** Báo cáo nghiệm thu bên dưới là kết quả lịch sử,
+> không phải xác nhận bản notebook vừa sửa đã chạy trên GPU Kaggle/Colab.
+> Xem [trạng thái kiểm chứng bản portable](../OCR/PORTABLE_HAN.md).
+> GPU và inference với weights đầy đủ hiện chưa được xác nhận trong phiên sửa này.
+
 # BÁO CÁO NGHIỆM THU — HAN–VIET ALIGNMENT STUDIO
 
 - **Thời gian kiểm chứng**: 2026-11-03T21:29:36Z

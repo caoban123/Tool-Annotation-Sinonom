@@ -2,34 +2,6 @@ import pytest
 from PIL import Image
 from OCR.utils.ocr_pipeline import PaddleVLOCREngine, BaseOCREngine, create_ocr_engine
 
-def test_causal_mask_wrapper_strips_cache_position():
-    """Verify that _patch_causal_mask_in_target safely removes cache_position on modern transformers."""
-    class MockTarget:
-        def __init__(self):
-            self.last_kwargs = None
-
-        def create_causal_mask(self, config, inputs_embeds, attention_mask):
-            self.last_kwargs = {
-                "config": config,
-                "inputs_embeds": inputs_embeds,
-                "attention_mask": attention_mask
-            }
-            return "mask_tensor"
-
-    target = MockTarget()
-    # Before patch, passing cache_position raises TypeError
-    with pytest.raises(TypeError):
-        target.create_causal_mask(config=1, inputs_embeds=2, attention_mask=3, cache_position=4)
-
-    # Apply patch
-    PaddleVLOCREngine._patch_causal_mask_in_target(target)
-
-    # After patch, passing cache_position must succeed and cache_position must be popped
-    res = target.create_causal_mask(config="cfg", inputs_embeds="emb", attention_mask="att", cache_position="strip_me")
-    assert res == "mask_tensor"
-    assert "cache_position" not in target.last_kwargs
-    assert target.last_kwargs["inputs_embeds"] == "emb"
-
 def test_base_ocr_engine_raises_error_without_mock():
     """Verify that BaseOCREngine raises RuntimeError when paddleocr is not installed and allow_mock=False."""
     # When allow_mock=False, missing engine must fail hard rather than silently degrading to fake mock
@@ -42,38 +14,11 @@ def test_base_ocr_engine_raises_error_without_mock():
         with pytest.raises(RuntimeError, match="Không thể khởi tạo mô hình"):
             BaseOCREngine(model_name="han", allow_mock=False)
 
-def test_prepare_inputs_for_generation_patch():
-    """Verify that _patch_prepare_inputs_for_generation prevents TypeError when cache_position is None."""
-    class MockVLM:
-        def __init__(self):
-            self.device = "cpu"
-
-        def prepare_inputs_for_generation(self, input_ids, past_key_values=None, cache_position=None, **kwargs):
-            if cache_position[0] != 0:
-                return {"mode": "subsequent_token"}
-            return {"mode": "prompt_step"}
-
-    model = MockVLM()
-    # Before patch, cache_position=None raises TypeError
-    with pytest.raises(TypeError):
-        model.prepare_inputs_for_generation(input_ids=1, cache_position=None)
-
-    # Apply patch
-    PaddleVLOCREngine._patch_prepare_inputs_for_generation(model)
-
-    # After patch, prompt step (past_key_values=None) gets cache_position[0] == 0
-    res0 = model.prepare_inputs_for_generation(input_ids=1, cache_position=None)
-    assert res0["mode"] == "prompt_step"
-
-    # Subsequent token step (past_key_values is present) gets cache_position[0] != 0
-    res1 = model.prepare_inputs_for_generation(input_ids=1, past_key_values="some_kv", cache_position=None)
-    assert res1["mode"] == "subsequent_token"
-
 @pytest.mark.integration
 @pytest.mark.requires_gpu
 def test_paddle_vl_real_gpu_inference():
     """Integration test that requires real CUDA GPU and weights."""
-    import torch
+    torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("Bỏ qua integration test: Cần GPU CUDA thật.")
 

@@ -24,12 +24,14 @@ def test_notebooks_valid_nbformat(nb_rel_path):
     assert len(code_cells) >= 2
 
 @pytest.mark.parametrize("nb_rel_path", NOTEBOOKS)
-def test_notebooks_smoke_execute(nb_rel_path):
+def test_notebooks_smoke_execute(nb_rel_path, monkeypatch):
     """Executes notebook in smoke mode to verify all code cells run cleanly without exception."""
     nb_path = Path(nb_rel_path)
     with open(nb_path, "r", encoding="utf-8") as f:
         nb = nbformat.read(f, as_version=4)
 
+    if nb_rel_path == "OCR/notebooks/01_OCR_Han.ipynb":
+        monkeypatch.setenv("OCR_NOTEBOOK_SMOKE", "1")
     client = NotebookClient(nb, timeout=60, kernel_name="python3")
     client.execute()
     # If no exception raised, execution succeeded!
