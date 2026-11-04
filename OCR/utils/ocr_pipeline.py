@@ -41,7 +41,7 @@ class PaddleVLOCREngine:
             pass
 
     def _load_model_instance(self, model_target: str, device: str, dtype: Any) -> tuple:
-        from transformers import AutoConfig, AutoModelForImageTextToText, AutoProcessor
+        from transformers import AutoConfig, AutoModelForCausalLM, AutoModel, AutoProcessor
 
         self._patch_rope_compatibility()
         config = AutoConfig.from_pretrained(model_target, trust_remote_code=True)
@@ -54,16 +54,29 @@ class PaddleVLOCREngine:
 
         processor = AutoProcessor.from_pretrained(model_target, trust_remote_code=True)
         
-        # Thử nạp model với tham số dtype tương thích
+        # Thử nạp model với AutoModelForCausalLM (chuẩn auto_map của PaddleOCR-VL) hoặc AutoModel
         load_kwargs = {
             "config": config,
             "device_map": "auto" if device == "cuda" else None,
             "trust_remote_code": True
         }
-        try:
-            model = AutoModelForImageTextToText.from_pretrained(model_target, dtype=dtype, **load_kwargs)
-        except TypeError:
-            model = AutoModelForImageTextToText.from_pretrained(model_target, torch_dtype=dtype, **load_kwargs)
+
+        model = None
+        last_err = None
+        for model_cls in [AutoModelForCausalLM, AutoModel]:
+            try:
+                try:
+                    model = model_cls.from_pretrained(model_target, dtype=dtype, **load_kwargs)
+                except TypeError:
+                    model = model_cls.from_pretrained(model_target, torch_dtype=dtype, **load_kwargs)
+                if model is not None:
+                    break
+            except Exception as e_cls:
+                last_err = e_cls
+                continue
+
+        if model is None:
+            raise RuntimeError(f"Không thể khởi tạo {model_target} qua AutoModelForCausalLM / AutoModel: {last_err}")
 
         return processor, model
 
@@ -113,28 +126,51 @@ class PaddleVLOCREngine:
                 }
             ]
             try:
-                text_prompt = None
+                inputs = None
                 if hasattr(self.processor, "apply_chat_template"):
                     try:
-                        text_prompt = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+                        inputs = self.processor.apply_chat_template(
+                            messages,
+                            tokenize=True,
+                            add_generation_prompt=True,
+                            return_dict=True,
+                            return_tensors="pt"
+                        ).to(self.model.device)
                     except Exception:
-                        text_prompt = None
+                        inputs = None
 
-                if not text_prompt:
+                if inputs is None:
                     text_prompt = "OCR:"
-
-                try:
-                    inputs = self.processor(text=[text_prompt], images=[img_rgb], return_tensors="pt").to(self.model.device)
-                except Exception:
-                    inputs = self.processor(images=img_rgb, text=text_prompt, return_tensors="pt").to(self.model.device)
+                    if hasattr(self.processor, "apply_chat_template"):
+                        try:
+                            text_prompt = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+                        except Exception:
+                            pass
+                    try:
+                        inputs = self.processor(text=[text_prompt], images=[img_rgb], return_tensors="pt").to(self.model.device)
+                    except Exception:
+                        inputs = self.processor(images=img_rgb, text=text_prompt, return_tensors="pt").to(self.model.device)
 
                 with torch.no_grad():
                     outputs = self.model.generate(**inputs, max_new_tokens=2048)
 
-                prompt_len = inputs["input_ids"].shape[-1] if "input_ids" in inputs else 0
-                generated_text = self.processor.decode(outputs[0][prompt_len:], skip_special_tokens=True).strip()
+                generated_text = ""
+                if hasattr(self.processor, "batch_decode"):
+                    try:
+                        decoded_list = self.processor.batch_decode(outputs, skip_special_tokens=True)
+                        if decoded_list:
+                            generated_text = decoded_list[0]
+                    except Exception:
+                        pass
+
                 if not generated_text:
-                    generated_text = self.processor.decode(outputs[0], skip_special_tokens=True).strip()
+                    prompt_len = inputs["input_ids"].shape[-1] if "input_ids" in inputs else 0
+                    generated_text = self.processor.decode(outputs[0][prompt_len:], skip_special_tokens=True).strip()
+
+                if "assistant\n" in generated_text:
+                    generated_text = generated_text.split("assistant\n", 1)[-1].strip()
+                elif generated_text.startswith("OCR:"):
+                    generated_text = generated_text[4:].strip()
             except Exception as ex:
                 print(f"[OCR-VL Engine] ⚠️ Lỗi inference: {ex}")
                 generated_text = ""
