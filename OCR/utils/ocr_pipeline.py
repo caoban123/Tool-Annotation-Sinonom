@@ -97,6 +97,31 @@ class PaddleVLOCREngine:
         except Exception:
             pass
 
+        # 4. Patch _preprocess_mask_arguments for 3D mrope position_ids
+        try:
+            import transformers.masking_utils as _t_mu
+            if hasattr(_t_mu, "_preprocess_mask_arguments"):
+                _orig_pma = _t_mu._preprocess_mask_arguments
+                if not getattr(_orig_pma, "_is_paddle_3d_patched", False):
+                    import functools
+                    @functools.wraps(_orig_pma)
+                    def _safe_pma(*args, **kwargs):
+                        pos_ids = kwargs.get("position_ids")
+                        if pos_ids is None and len(args) > 5:
+                            pos_ids = args[5]
+                        if pos_ids is not None and getattr(pos_ids, "ndim", 0) > 2:
+                            if "position_ids" in kwargs:
+                                kwargs["position_ids"] = None
+                            elif len(args) > 5:
+                                al = list(args)
+                                al[5] = None
+                                args = tuple(al)
+                        return _orig_pma(*args, **kwargs)
+                    _safe_pma._is_paddle_3d_patched = True
+                    _t_mu._preprocess_mask_arguments = _safe_pma
+        except Exception:
+            pass
+
         # 4. Patch all causal masks to safely strip unsupported cache_position
         try:
             cls._patch_all_causal_masks()
@@ -126,6 +151,9 @@ class PaddleVLOCREngine:
                             kwargs["input_embeds"] = kwargs.pop("inputs_embeds")
                         elif not accepts_input and accepts_inputs and "input_embeds" in kwargs:
                             kwargs["inputs_embeds"] = kwargs.pop("input_embeds")
+                        pos_ids = kwargs.get("position_ids")
+                        if pos_ids is not None and getattr(pos_ids, "ndim", 0) > 2:
+                            kwargs["position_ids"] = None
                         return fn(*args, **kwargs)
 
                     _safe_create_causal_mask._is_paddle_patched = True
@@ -335,6 +363,8 @@ class PaddleVLOCREngine:
 
         if inputs is not None and "input_ids" in inputs:
             inputs.pop("cache_position", None)
+            if "attention_mask" not in inputs:
+                inputs["attention_mask"] = torch.ones_like(inputs["input_ids"])
 
         self._patch_all_causal_masks()
         self._patch_prepare_inputs_for_generation(self.model)
