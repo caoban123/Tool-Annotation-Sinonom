@@ -492,7 +492,7 @@ class BaseOCREngine:
                     f"Vui lòng cài đặt: pip install paddlepaddle paddleocr"
                 ) from e
 
-    def recognize_image(self, image: Image.Image) -> List[Dict[str, Any]]:
+    def recognize_image(self, image: Image.Image, *args, **kwargs) -> List[Dict[str, Any]]:
         """Recognizes text lines and bboxes from a PIL Image."""
         if self._vl_engine is not None:
             return self._vl_engine.recognize_image(image)
@@ -611,7 +611,10 @@ class OCRPipeline:
 
             t0 = time.time()
             try:
-                detected_boxes = self.engine.recognize_image(img, show_progress=False)
+                try:
+                    detected_boxes = self.engine.recognize_image(img, show_progress=False)
+                except TypeError:
+                    detected_boxes = self.engine.recognize_image(img)
             except Exception as e:
                 import traceback
                 traceback.print_exc()
