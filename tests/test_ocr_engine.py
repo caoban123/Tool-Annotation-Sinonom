@@ -42,6 +42,33 @@ def test_base_ocr_engine_raises_error_without_mock():
         with pytest.raises(RuntimeError, match="Không thể khởi tạo mô hình"):
             BaseOCREngine(model_name="han", allow_mock=False)
 
+def test_prepare_inputs_for_generation_patch():
+    """Verify that _patch_prepare_inputs_for_generation prevents TypeError when cache_position is None."""
+    class MockVLM:
+        def __init__(self):
+            self.device = "cpu"
+
+        def prepare_inputs_for_generation(self, input_ids, past_key_values=None, cache_position=None, **kwargs):
+            if cache_position[0] != 0:
+                return {"mode": "subsequent_token"}
+            return {"mode": "prompt_step"}
+
+    model = MockVLM()
+    # Before patch, cache_position=None raises TypeError
+    with pytest.raises(TypeError):
+        model.prepare_inputs_for_generation(input_ids=1, cache_position=None)
+
+    # Apply patch
+    PaddleVLOCREngine._patch_prepare_inputs_for_generation(model)
+
+    # After patch, prompt step (past_key_values=None) gets cache_position[0] == 0
+    res0 = model.prepare_inputs_for_generation(input_ids=1, cache_position=None)
+    assert res0["mode"] == "prompt_step"
+
+    # Subsequent token step (past_key_values is present) gets cache_position[0] != 0
+    res1 = model.prepare_inputs_for_generation(input_ids=1, past_key_values="some_kv", cache_position=None)
+    assert res1["mode"] == "subsequent_token"
+
 @pytest.mark.integration
 @pytest.mark.requires_gpu
 def test_paddle_vl_real_gpu_inference():

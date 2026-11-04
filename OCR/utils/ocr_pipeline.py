@@ -135,7 +135,7 @@ class PaddleVLOCREngine:
 
     @classmethod
     def _patch_all_causal_masks(cls):
-        """Scans transformers modules and remote code modules to patch create_causal_mask."""
+        """Scans transformers modules and remote code modules to patch create_causal_mask and prepare_inputs_for_generation."""
         import sys
         for mod_name in ['transformers.masking_utils', 'transformers.modeling_attn_mask_utils']:
             try:
@@ -151,6 +151,64 @@ class PaddleVLOCREngine:
         for name, m in list(sys.modules.items()):
             if "paddleocr" in name.lower() or "modeling_" in name.lower():
                 cls._patch_causal_mask_in_target(m)
+                cls._patch_prepare_inputs_for_generation(m)
+                for attr_name in dir(m):
+                    try:
+                        val = getattr(m, attr_name)
+                        if isinstance(val, type):
+                            cls._patch_prepare_inputs_for_generation(val)
+                    except Exception:
+                        pass
+
+    @staticmethod
+    def _patch_prepare_inputs_for_generation(target: Any):
+        """
+        Patches prepare_inputs_for_generation to prevent TypeError: 'NoneType' object is not subscriptable
+        when modern transformers (v5.x) passes cache_position=None or omits it.
+        """
+        if hasattr(target, "prepare_inputs_for_generation"):
+            fn = getattr(target, "prepare_inputs_for_generation")
+            if not getattr(fn, "_is_paddle_cp_patched", False):
+                try:
+                    import inspect
+                    import functools
+                    import torch
+
+                    sig = inspect.signature(fn)
+                    params = list(sig.parameters.keys())
+                    cp_idx = params.index("cache_position") if "cache_position" in params else -1
+                    pkv_idx = params.index("past_key_values") if "past_key_values" in params else -1
+
+                    @functools.wraps(fn)
+                    def _safe_prepare(*args, **kwargs):
+                        dev = getattr(target, "device", "cpu")
+                        if not isinstance(dev, (str, torch.device)):
+                            dev = "cpu"
+
+                        pkv = kwargs.get("past_key_values")
+                        if pkv is None and pkv_idx >= 0 and len(args) > pkv_idx:
+                            pkv = args[pkv_idx]
+
+                        step_idx = 1 if pkv else 0
+                        cp_tensor = torch.tensor([step_idx], device=dev)
+
+                        if "cache_position" in kwargs:
+                            if kwargs["cache_position"] is None:
+                                kwargs["cache_position"] = cp_tensor
+                        elif cp_idx >= 0 and len(args) > cp_idx:
+                            if args[cp_idx] is None:
+                                args_list = list(args)
+                                args_list[cp_idx] = cp_tensor
+                                args = tuple(args_list)
+                        else:
+                            kwargs["cache_position"] = cp_tensor
+
+                        return fn(*args, **kwargs)
+
+                    _safe_prepare._is_paddle_cp_patched = True
+                    setattr(target, "prepare_inputs_for_generation", _safe_prepare)
+                except Exception:
+                    pass
 
     def _load_model_instance(self, model_target: str, device: str, dtype: Any) -> tuple:
         self._patch_transformers_compatibility()
@@ -189,6 +247,8 @@ class PaddleVLOCREngine:
 
         # Disable strict generation parameter validation on multimodal VLM
         model._validate_model_kwargs = lambda *a, **kw: None
+        self._patch_prepare_inputs_for_generation(model)
+        self._patch_prepare_inputs_for_generation(model.__class__)
 
         # Re-patch any dynamically imported modules from the model repo
         self._patch_all_causal_masks()
@@ -277,6 +337,8 @@ class PaddleVLOCREngine:
             inputs.pop("cache_position", None)
 
         self._patch_all_causal_masks()
+        self._patch_prepare_inputs_for_generation(self.model)
+        self._patch_prepare_inputs_for_generation(self.model.__class__)
 
         with torch.no_grad():
             outputs = self.model.generate(**inputs, max_new_tokens=2048)
