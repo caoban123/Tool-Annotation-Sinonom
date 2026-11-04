@@ -13,6 +13,7 @@ def build_ocr_han_notebook():
     files = ['OCR/han_runner.py', 'OCR/utils/__init__.py', 'OCR/utils/ocr_pipeline.py',
              'OCR/utils/checkpoints.py', 'OCR/utils/export_text.py', 'OCR/utils/page_order.py',
              'OCR/utils/render_pdf.py', 'OCR/utils/notebook_process.py', 'OCR/requirements-han.txt',
+             'OCR/utils/regions.py', 'OCR/utils/resilient_pages.py',
              'OCR/assets/han_demo.png', 'OCR/assets/han_demo.txt']
     payload = json.dumps({name: base64.b64encode((ROOT / name).read_bytes()).decode() for name in files}).encode()
     encoded = base64.b64encode(zlib.compress(payload)).decode()
@@ -54,7 +55,9 @@ def build_ocr_han_notebook():
     MODEL_ID = "PaddlePaddle/PaddleOCR-VL-1.6"
     MODEL_REVISION = None  # Có thể điền commit Hugging Face để tái lập weights
     MAX_NEW_TOKENS = 4096
-    MAX_RETRY_TOKENS = 16384  # Tự tăng 4096 → 8192 → 16384 chỉ khi vùng ảnh thiếu EOS
+    REGION_TIMEOUT = 90  # Giới hạn mềm mỗi lần generate; dừng ở bước sinh token kế tiếp
+    PAGE_TIMEOUT = 300  # Hết ngân sách trang thì lưu vùng cần kiểm tra và đi tiếp
+    CONTINUE_ON_ERROR = True
     MAX_PIXELS = 1003520
     RENDER_SCALE = 2.0
     READING_ORDER = "rtl_vertical"
@@ -169,7 +172,8 @@ def build_ocr_han_notebook():
     config = dict(input_path=str(input_file), start_page=START_PAGE, end_page=end_page,
                   model_id=MODEL_ID, model_revision=MODEL_REVISION, use_gpu=USE_GPU,
                   max_new_tokens=MAX_NEW_TOKENS, max_pixels=MAX_PIXELS, render_scale=RENDER_SCALE,
-                  max_retry_tokens=MAX_RETRY_TOKENS,
+                  region_timeout=REGION_TIMEOUT, page_timeout=PAGE_TIMEOUT,
+                  continue_on_error=CONTINUE_ON_ERROR,
                   reading_order=READING_ORDER, split_spread=SPLIT_SPREAD,
                   force_reprocess=FORCE_REPROCESS, output_dir=str(WORK_DIR / 'output'),
                   checkpoint_dir=CHECKPOINT_DIR or str(WORK_DIR / 'output/checkpoints'))
@@ -178,7 +182,7 @@ def build_ocr_han_notebook():
     print(json.dumps(config, ensure_ascii=False, indent=2))
     ''')
     cell('code', '''
-    # 6. OCR thật từng trang, log trực tiếp; dừng ngay nếu model/ảnh bị lỗi
+    # 6. OCR từng cột/vùng; lưu vùng lỗi để kiểm tra và tiếp tục các trang còn lại
     if not SMOKE:
         import runpy
         run_logged_process = runpy.run_path(str(SOURCE_DIR / 'OCR/utils/notebook_process.py'))['run_logged_process']
@@ -193,17 +197,21 @@ def build_ocr_han_notebook():
     if not SMOKE:
         output_dir = Path(config['output_dir'])
         metadata = json.loads((output_dir / 'han_metadata.json').read_text(encoding='utf-8'))
-        text = (output_dir / 'han.txt').read_text(encoding='utf-8')
+        text_file = metadata.get('text_file', 'han.txt')
+        text = (output_dir / text_file).read_text(encoding='utf-8')
         assert len(metadata['pages']) == end_page - START_PAGE + 1
         assert text == metadata['full_text']
         assert not metadata['engine_info']['is_mock']
+        if not metadata.get('complete', True):
+            print('⚠ CẦN KIỂM TRA: kết quả chưa đầy đủ. Xem error_report.json và ảnh needs_review trong ZIP.')
+            print('Không dùng han.partial.txt như bản OCR hoàn chỉnh.')
         print('Số trang:', metadata['total_pages'], '| Số ký tự:', len(text))
         print('Thời gian inference:', sum(p['inference_time_sec'] for p in metadata['pages'] if not p['is_cached']))
         blank = [p['page_number'] for p in metadata['pages'] if p['is_blank']]
         if blank:
             print('Cần kiểm tra trang không có text:', blank)
         print(text[:3000])
-        for name in ('han.txt', 'han_metadata.json', 'han_ocr.zip'):
+        for name in (text_file, 'han_metadata.json', 'error_report.json', 'han_ocr.zip'):
             display(FileLink(os.path.relpath(output_dir / name, Path.cwd())))
         if 'google.colab' in sys.modules:
             from google.colab import files
@@ -222,8 +230,10 @@ def build_ocr_han_notebook():
     - `torchvision::nms`, `librosa`, `numpy.dtype size changed`: runtime nền đã bị thay thư viện;
       khởi tạo session GPU sạch rồi Run all. Không chạy các cell cài đặt notebook cũ trước notebook này.
     - CUDA out of memory: giảm MAX_PIXELS (ví dụ 501760), bật SPLIT_SPREAD cho ảnh hai mặt.
-    - Chạm giới hạn token: tự thử lại tới MAX_RETRY_TOKENS, vẫn giữ cache các trang đã hoàn tất.
-      Nếu vẫn không có EOS, kiểm tra chữ lặp/cắt nhỏ ảnh theo cột; không cache trang bị cắt cụt.
+    - Trang nhiều cột được chia tại đường kẻ/khoảng trắng. Vùng bị lặp, timeout hoặc thiếu EOS
+      được chia nhỏ tiếp với số lần thử hữu hạn; không tiếp tục tăng toàn trang lên 16K token.
+    - Vùng vẫn lỗi được lưu trong needs_review và error_report.json; notebook tiếp tục trang khác.
+      Chỉ xuất han.txt nếu mọi trang đầy đủ; khi còn thiếu thì xuất han.partial.txt có cảnh báo.
     - Hết phiên: lưu ZIP/checkpoints. Khi mở phiên mới, đưa checkpoint vào thư mục writable
       và đặt CHECKPOINT_DIR trỏ tới đó. Cache được phân biệt theo hash tài liệu và cấu hình.
 

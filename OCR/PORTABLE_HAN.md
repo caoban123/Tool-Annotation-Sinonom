@@ -44,7 +44,8 @@ ZIP có thêm checkpoint để tiếp tục sau khi gián đoạn.
 - Render từng trang, đóng PDFium bitmap/page/document sau khi sao chép ảnh.
 - Checkpoint phân biệt theo SHA-256 tài liệu và cấu hình model/render/token/reading order.
   Ghi checkpoint bằng file tạm rồi atomic replace; không đánh dấu trang inference lỗi là hoàn tất.
-- Chặn kết quả chạm giới hạn token trước EOS, yêu cầu tăng giới hạn hoặc chia nhỏ ảnh.
+- Chia ảnh theo đường kẻ/khoảng trắng; dừng sinh lặp hoặc quá thời gian, chia vùng nhỏ hơn.
+  Không tăng toàn trang lên 16K token để thử lại liên tục.
 - Bỏ tọa độ dòng suy diễn và confidence cố định `0.99`. Đầu ra VLM là văn bản theo vùng/trang,
   không phải kết quả detector từng chữ. Không có đánh giá độ chính xác tự động từ độ dài text.
 - `SPLIT_SPREAD=True` chia ảnh hai mặt sách dọc, nhận dạng nửa phải trước nửa trái.
@@ -57,6 +58,8 @@ Lưu ZIP ra máy hoặc Drive. Giải nén thư mục `checkpoints/` vào một 
 Checkpoint trong `/content` hoặc `/kaggle/working` tự mất nếu nền tảng xóa session;
 notebook không tự mount Drive. Có thể trỏ `CHECKPOINT_DIR` tới Drive đã được mount.
 Không trỏ checkpoint vào `/kaggle/input` vì đây là vùng chỉ đọc.
+ZIP cũng chứa `region_cache/`. Để tiếp tục các vùng trong trang còn lỗi sau khi hết
+phiên, khôi phục thư mục này vào `<output_dir>/region_cache/` của phiên mới.
 
 ## Khi cell 6 báo lỗi
 
@@ -92,16 +95,35 @@ Log Colab đã xác nhận 26 trang đầu được nạp từ cache; trang 27 t
 `max_new_tokens` được dùng hết trước EOS. Model đã nạp thành công; cảnh báo
 HF token, fast processor và RoPE trong log đó không phải lỗi khiến tiến trình dừng.
 
-Bản sửa giữ ngân sách ban đầu 4096 và tự thử lại **chỉ vùng ảnh chưa hoàn tất** với
-8192 rồi tối đa `MAX_RETRY_TOKENS=16384`. Nếu vẫn thiếu EOS thì dừng, không cache
-hay xuất văn bản bị cắt cụt. Kiểm tra ảnh/chữ lặp và chia vùng theo cột khi cần;
-không đảm bảo tăng token sẽ khắc phục mọi trang khó.
+Bản tăng 4096 → 8192 → 16384 đã không giải quyết được trang này: log mới ghi nhận
+15 phút 20 giây rồi vẫn thiếu EOS. Đã tìm được PDF local có đúng SHA-256 trong log
+`15e0c07f0af59a6e9c4989936a498648e3b752e462967ae9d323f53fd81231da` và xem trang 27:
+hai mặt sách, nhiều cột Hán dọc, đường kẻ và phần lề nhiễu.
+
+Bản hiện tại chuyển sang xử lý vùng ảnh theo bố cục:
+
+- Chia tại đường kẻ dài hoặc khoảng trắng, giữ tọa độ và thứ tự đọc.
+- Phát hiện chu kỳ token lặp và giới hạn mềm 90 giây mỗi generate; không coi dừng
+  vì guard là EOS thành công. Thời gian được kiểm tra ở bước sinh token kế tiếp.
+- Vùng thiếu EOS/sinh lặp/hết thời gian/OOM được chia nhỏ tiếp, tối đa ba tầng.
+- Mỗi phần ảnh có tối đa 40 lần thử, ngân sách mềm cả trang 300 giây; phần hai mặt
+  sách dùng chung ngân sách thời gian trang. Cột/lề nhiễu không được phép chặn cả sách.
+- `CONTINUE_ON_ERROR=True`: lưu ảnh và lỗi tại `needs_review/`, tiếp tục trang khác.
+  Có thể đặt False để dừng ngay khi cần chẩn đoán.
+- Chỉ ghi checkpoint hoàn tất khi vùng/trang đầy đủ. Các vùng thành công trong
+  trang còn lỗi được checkpoint riêng để dùng lại khi chạy tiếp.
+- Có đủ mọi trang mới xuất `han.txt`. Còn vùng lỗi thì chỉ xuất `han.partial.txt`,
+  `han_metadata.json` với `complete=false`, `error_report.json` và ảnh lỗi trong ZIP.
+  Không dùng file partial làm bản nộp hoàn chỉnh. Mã thoát 0 khi xử lý hết lượt
+  không có nghĩa mọi trang đã OCR thành công; xem trường `complete` và cảnh báo cell 7.
+
+Đây là heuristic chia vùng, không phải detector từng chữ; vẫn cần soát lỗi chữ,
+thứ tự và mép cột. Không xóa hoặc tự sửa chữ lặp trong văn bản để giả làm kết quả đúng.
 
 Giữ `MAX_NEW_TOKENS`, `MAX_PIXELS`, `SPLIT_SPREAD` và các cấu hình cũ để dùng lại
-cache trang 1–26; đặt `FORCE_REPROCESS=False`. Trần retry mới không làm thay đổi
-khóa cache của các trang đã kết thúc đầy đủ. Không cần xóa cache, tải lại weights
-hoặc restart runtime chỉ để áp dụng bản sửa này. Tăng trần có thể làm trang khó
-chạy lâu hơn và dùng thêm bộ nhớ GPU.
+cache trang 1–26; đặt `FORCE_REPROCESS=False`. Khóa cache hoàn tất cũ được giữ để
+tiếp tục trang 27. Không cần xóa cache, tải lại weights hoặc restart runtime chỉ
+để áp dụng bản sửa này. Muốn kiểm tra lại chất lượng các trang cũ thì chủ động OCR lại.
 
 ## Kiểm chứng và giới hạn
 
@@ -109,6 +131,12 @@ Môi trường kiểm thử: Windows, Python 3.10.5; môi trường CPU bổ sun
 PyTorch `2.13.0+cpu`, Transformers `5.1.0`. Không có CUDA trong phiên làm việc này.
 
 - Kiểm thử hồi quy local: PDF/ảnh, API Web, split/merge, QA, xuất file, checkpoint.
+- Bản chia vùng: **24 passed** với `test_resilient_ocr.py`, `test_han_portable.py`
+  và `test_notebook_process.py` trong môi trường có torch/Transformers. Bao gồm
+  sinh lặp, timeout, chia vùng, tiếp tục trang sau, cache/resume và chặn xuất đầy đủ khi còn lỗi.
+- Đã render và kiểm tra vùng trên PDF khớp hash, trang 1/26/27/28/83: lần lượt
+  1/4/12/9/6 vùng; tổng diện tích vùng phủ đủ ảnh, không bỏ dải pixel giữa các vùng.
+  Kiểm tra này không chứng minh các ký tự nhận dạng đúng hoặc mọi mép cột đều tối ưu.
 - Kết quả: **55 passed, 7 skipped** trong venv (các bài thiếu torch/CUDA được ghi skip);
   **11 passed** cho `test_han_portable.py` trong môi trường có PyTorch/Transformers.
   Hai bài nbformat/smoke của notebook Hán đều pass.
@@ -128,7 +156,7 @@ Lệnh chạy kiểm thử:
 .venv\Scripts\python -m pytest tests --ignore=tests/test_notebooks.py --ignore=tests/e2e -q
 .venv\Scripts\python -m pytest tests/test_notebooks.py -k OCR_Han -q
 # Môi trường có torch và Transformers 5.1.0:
-python -m pytest tests/test_han_portable.py -q
+python -m pytest tests/test_resilient_ocr.py tests/test_han_portable.py tests/test_notebook_process.py -q
 ```
 
 Kiểm thử GPU thật:

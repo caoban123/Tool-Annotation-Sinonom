@@ -28,7 +28,7 @@ def configuration(tmp_path, input_path):
     return dict(input_path=str(input_path), output_dir=str(tmp_path / 'output'),
                 model_id='contract_model', use_gpu=False, start_page=1, end_page=None,
                 max_new_tokens=128, max_pixels=200704, render_scale=1.0,
-                reading_order='rtl_vertical')
+                reading_order='rtl_vertical', continue_on_error=False)
 
 
 def test_runner_pdf_export_and_resume(tmp_path):
@@ -36,7 +36,8 @@ def test_runner_pdf_export_and_resume(tmp_path):
     engine = RecordingEngine()
     result = run(config, engine)
     calls = engine.calls
-    assert calls == result['total_pages']
+    # A page can now contain multiple ordered OCR regions.
+    assert calls >= result['total_pages']
     assert all(p['page_number'] == i + 1 for i, p in enumerate(result['pages']))
     config['max_retry_tokens'] = 16384
     resumed = run(config, engine)
@@ -194,6 +195,7 @@ def test_native_generation_with_tiny_random_model():
     """Exercise real attention/cache math offline; NOT OCR-quality evidence."""
     torch = pytest.importorskip('torch')
     transformers = pytest.importorskip('transformers')
+    from OCR.utils.regions import GenerationGuard
     config = transformers.PaddleOCRVLConfig(
         text_config=dict(vocab_size=32, hidden_size=32, intermediate_size=64,
                          num_attention_heads=4, num_key_value_heads=2, head_dim=8,
@@ -207,7 +209,8 @@ def test_native_generation_with_tiny_random_model():
         result = model.generate(input_ids=torch.tensor([[1, 4, 3, 5, 6]]),
             attention_mask=torch.ones((1, 5), dtype=torch.long),
             pixel_values=torch.zeros((4, 3, 14, 14)), image_grid_thw=torch.tensor([[1, 2, 2]]),
-            max_new_tokens=2, do_sample=False, use_cache=True)
+            max_new_tokens=2, do_sample=False, use_cache=True,
+            stopping_criteria=transformers.StoppingCriteriaList([GenerationGuard(5)]))
     assert result.shape[0] == 1
     assert result.shape[1] > 5
 

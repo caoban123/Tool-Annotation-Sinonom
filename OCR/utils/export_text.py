@@ -11,6 +11,8 @@ def validate_ocr_output(ocr_result: Dict[str, Any]) -> Dict[str, Any]:
     """
     if not isinstance(ocr_result, dict):
         raise ValueError("Kết quả OCR không đúng định dạng dictionary.")
+    if ocr_result.get('complete') is False or ocr_result.get('errors'):
+        raise ValueError('Kết quả OCR chưa đầy đủ; chỉ được xuất bản partial kèm báo cáo lỗi.')
 
     engine_info = ocr_result.get("engine_info", {})
     if engine_info.get("is_mock", False):

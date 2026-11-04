@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Optional
 from PIL import Image
 from .checkpoints import OCRCheckpointManager
 from .page_order import sort_bounding_boxes
+from .regions import GenerationGuard, OCRRegionError
 
 logger = logging.getLogger("OCR-Pipeline")
 
@@ -17,7 +18,7 @@ class PaddleVLOCREngine:
     """
     def __init__(self, model_id="PaddlePaddle/PaddleOCR-VL-1.6", use_gpu=True,
                  max_new_tokens=4096, max_pixels=1003520, revision=None,
-                 max_retry_tokens=16384):
+                 max_retry_tokens=16384, region_timeout=90):
         if max_new_tokens < 1 or max_pixels < 784:
             raise ValueError("max_new_tokens >= 1; max_pixels >= 784")
         self.model_id = model_id
@@ -28,6 +29,9 @@ class PaddleVLOCREngine:
             raise ValueError("max_retry_tokens >= 1")
         self.max_retry_tokens = max(max_new_tokens, max_retry_tokens)
         self.max_pixels = max_pixels
+        if region_timeout <= 0:
+            raise ValueError('region_timeout phải lớn hơn 0')
+        self.region_timeout = region_timeout
         self.revision = revision
         self.is_mock = False
         self.last_truncated = False
@@ -57,6 +61,7 @@ class PaddleVLOCREngine:
 
     def recognize_image(self, image: Image.Image, show_progress=True):
         import torch
+        from transformers import StoppingCriteriaList
         image = image.convert("RGB")
         messages = [{"role": "user", "content": [
             {"type": "image", "image": image}, {"type": "text", "text": "OCR:"}
@@ -78,15 +83,20 @@ class PaddleVLOCREngine:
         budget = self.max_new_tokens
         ceiling = getattr(self, 'max_retry_tokens', budget)
         while True:
+            guard = GenerationGuard(prompt_len, getattr(self, 'region_timeout', 90))
             with torch.inference_mode():
                 output = self.model.generate(**inputs, max_new_tokens=budget,
-                                             do_sample=False, use_cache=True)
+                                             do_sample=False, use_cache=True,
+                                             stopping_criteria=StoppingCriteriaList([guard]))
             generated = output[0][prompt_len:]
-            self.last_truncated = len(generated) >= budget and int(generated[-1]) not in eos_ids
+            ended = len(generated) > 0 and int(generated[-1]) in eos_ids
+            if guard.reason and not ended:
+                raise OCRRegionError(f"Vùng ảnh chưa hoàn tất: {guard.reason}. Cần chia vùng nhỏ hơn.")
+            self.last_truncated = len(generated) >= budget and not ended
             if not self.last_truncated:
                 break
             if budget >= ceiling:
-                raise RuntimeError(
+                raise OCRRegionError(
                     f"OCR đạt max_new_tokens={budget} trước EOS sau khi thử lại. "
                     "Trang này chưa được cache. Kiểm tra ảnh/chữ lặp; chia ảnh theo cột "
                     "hoặc bật SPLIT_SPREAD nếu ảnh có hai mặt sách."
