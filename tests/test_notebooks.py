@@ -30,7 +30,7 @@ def test_notebooks_smoke_execute(nb_rel_path, monkeypatch):
     with open(nb_path, "r", encoding="utf-8") as f:
         nb = nbformat.read(f, as_version=4)
 
-    if nb_rel_path == "OCR/notebooks/01_OCR_Han.ipynb":
+    if nb_rel_path in ("OCR/notebooks/01_OCR_Han.ipynb", "OCR/notebooks/02_OCR_Viet.ipynb"):
         monkeypatch.setenv("OCR_NOTEBOOK_SMOKE", "1")
     client = NotebookClient(nb, timeout=60, kernel_name="python3")
     client.execute()

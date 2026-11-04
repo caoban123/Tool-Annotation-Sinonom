@@ -120,6 +120,6 @@ def test_real_notebook_receives_updated_dashboard(tmp_path):
     notebook = nbformat.v4.new_notebook(cells=[nbformat.v4.new_code_cell(source)])
     NotebookClient(notebook, timeout=30, kernel_name='python3').execute()
     markup = '\n'.join(output.get('data', {}).get('text/html', '') for output in notebook.cells[0].outputs)
-    assert 'Tiến độ OCR Hán' in markup
+    assert 'Tiến độ OCR' in markup
     assert '2/2 trang' in markup
     assert 'còn vùng cần kiểm tra' in markup

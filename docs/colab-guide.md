@@ -48,7 +48,14 @@ Nếu ảnh là hai mặt sách Hán dọc, bật `SPLIT_SPREAD=True` để đ�
 Giới hạn token không được coi là trang hoàn tất: tăng `MAX_NEW_TOKENS` hoặc chia nhỏ ảnh khi có lỗi.
 Xem [hướng dẫn và kết quả kiểm thử bản sửa](../OCR/PORTABLE_HAN.md).
 
-Notebook tiếng Việt có quy trình riêng; thay đổi này tập trung notebook Hán.
+## OCR tiếng Việt trên Colab và Kaggle
+
+Mở `OCR/notebooks/02_OCR_Viet.ipynb`, upload tài liệu và điền `INPUT_PATH` ở cell 1.
+Chọn `DEVICE="gpu:0"` (bật GPU) hoặc `"cpu"`, rồi Run all. Notebook tự cài Python 3.11
+và PaddleOCR vào môi trường riêng. Cell 5 có bảng tiến độ; cell 6 tải `viet_ocr.zip`.
+Lỗi trang được báo rõ và xuất `viet.partial.txt` thay cho bản đầy đủ. Chạy lại để
+tiếp tục từ checkpoint; dùng thư mục Drive đã mount để giữ checkpoint qua các phiên.
+Xem [hướng dẫn OCR Việt](../OCR/PORTABLE_VIET.md).
 
 ## 2. Hướng Dẫn Chạy Gợi Ý Dóng Hàng Semantic Alignment Trên Colab
 1. Trong Web Studio trên máy cá nhân, vào Workspace $\rightarrow$ bấm **"Gợi ý AI"** $\rightarrow$ nhấp vào link tải **`segments.jsonl`**.

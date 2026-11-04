@@ -96,7 +96,7 @@ class NotebookProgress:
         if state['region'] is not None:
             location += ' · Vùng ' + str(state['region'])
         return f'''<section aria-label="Tiến độ OCR" style="font:14px/1.5 system-ui,sans-serif;background:#111827;color:#e5e7eb;border:1px solid #475569;border-radius:12px;padding:18px;margin:8px 0 16px;max-width:1000px;box-sizing:border-box">
-<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><strong style="font-size:17px">Tiến độ OCR Hán</strong><strong style="color:{color}">{percent:.1f}%</strong></div>
+<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><strong style="font-size:17px">Tiến độ OCR</strong><strong style="color:{color}">{percent:.1f}%</strong></div>
 <div role="progressbar" aria-label="Trang đã xử lý" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{percent:.1f}" style="height:12px;background:#334155;border-radius:8px;overflow:hidden;margin:12px 0"><div style="height:100%;width:{percent:.1f}%;background:{color}"></div></div>
 <div style="display:flex;gap:24px;flex-wrap:wrap"><span>Đã xử lý: <b>{processed}/{total or '—'} trang</b></span><span>Từ cache: <b>{esc(state['cached'])}</b></span><span>Thời gian: <b>{duration}</b></span></div>
 <div style="margin-top:10px;color:#cbd5e1">{esc(location)}</div>
