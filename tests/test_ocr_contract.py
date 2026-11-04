@@ -76,3 +76,37 @@ def test_paddle_vl_ocr_engine_interface(tmp_path):
     res = pipeline.process_images([img], source_id="test_vl_scan")
     assert len(res["pages"]) == 1
     assert len(res["full_text"]) > 0
+
+def test_create_causal_mask_compatibility_patch():
+    """Verify that _patch_causal_mask_in_target strips cache_position on newer transformers."""
+    class MockMaskModule:
+        def __init__(self):
+            self.called_kwargs = None
+
+        def create_causal_mask(self, config, inputs_embeds, attention_mask):
+            self.called_kwargs = {
+                "config": config,
+                "inputs_embeds": inputs_embeds,
+                "attention_mask": attention_mask
+            }
+            return "causal_mask_tensor"
+
+    mock_mod = MockMaskModule()
+    # Before patch, passing cache_position raises TypeError
+    with pytest.raises(TypeError):
+        mock_mod.create_causal_mask(config=1, inputs_embeds=2, attention_mask=3, cache_position=4)
+
+    # Apply patch
+    PaddleVLOCREngine._patch_causal_mask_in_target(mock_mod)
+
+    # After patch, passing cache_position must be intercepted and stripped cleanly
+    result = mock_mod.create_causal_mask(config="cfg", inputs_embeds="emb", attention_mask="att", cache_position="should_be_stripped")
+    assert result == "causal_mask_tensor"
+    assert "cache_position" not in mock_mod.called_kwargs
+    assert mock_mod.called_kwargs["inputs_embeds"] == "emb"
+
+    # Also verify modeling_attn_mask_utils has create_causal_mask exported
+    import transformers.modeling_attn_mask_utils as mamu
+    assert hasattr(mamu, "create_causal_mask")
+    from transformers.modeling_attn_mask_utils import create_causal_mask
+    assert callable(create_causal_mask)

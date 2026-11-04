@@ -31,7 +31,8 @@ class PaddleVLOCREngine:
         self.is_mock = False
         self._init_engine()
 
-    def _patch_transformers_compatibility(self):
+    @classmethod
+    def _patch_transformers_compatibility(cls):
         """
         Comprehensive shims and monkey-patches for PaddleOCR-VL compatibility
         across all versions of Hugging Face transformers.
@@ -45,15 +46,55 @@ class PaddleVLOCREngine:
         except Exception:
             pass
 
-        # 2. Shim transformers.masking_utils if missing (in transformers < 4.48)
+        # 2. Shim and bridge transformers.masking_utils and transformers.modeling_attn_mask_utils
         try:
-            import transformers.masking_utils
+            import transformers.modeling_attn_mask_utils as _mamu
+        except Exception:
+            _mamu = None
+
+        try:
+            import transformers.masking_utils as _mu
         except ImportError:
-            try:
-                import transformers.modeling_attn_mask_utils as _mamu
+            if _mamu is not None:
                 sys.modules['transformers.masking_utils'] = _mamu
-            except Exception:
-                pass
+            _mu = sys.modules.get('transformers.masking_utils')
+        except Exception:
+            _mu = None
+
+        # Cross-export create_causal_mask so both modules have it (remote code imports from modeling_attn_mask_utils)
+        try:
+            causal_mask_fn = None
+            if _mu is not None and hasattr(_mu, "create_causal_mask"):
+                causal_mask_fn = getattr(_mu, "create_causal_mask")
+            elif _mamu is not None and hasattr(_mamu, "create_causal_mask"):
+                causal_mask_fn = getattr(_mamu, "create_causal_mask")
+
+            if causal_mask_fn is not None:
+                if _mamu is not None and not hasattr(_mamu, "create_causal_mask"):
+                    setattr(_mamu, "create_causal_mask", causal_mask_fn)
+                if _mu is not None and not hasattr(_mu, "create_causal_mask"):
+                    setattr(_mu, "create_causal_mask", causal_mask_fn)
+            elif _mamu is not None or _mu is not None:
+                def _fallback_create_causal_mask(config=None, input_embeds=None, inputs_embeds=None, attention_mask=None, *args, **kwargs):
+                    embeds = inputs_embeds if inputs_embeds is not None else input_embeds
+                    if embeds is None:
+                        return attention_mask
+                    if _mamu is not None and hasattr(_mamu, "_prepare_4d_causal_attention_mask"):
+                        bsz, seq_len = embeds.shape[:2]
+                        return _mamu._prepare_4d_causal_attention_mask(
+                            attention_mask=attention_mask,
+                            sequence_length=seq_len,
+                            target_length=seq_len,
+                            dtype=embeds.dtype,
+                            device=embeds.device
+                        )
+                    return attention_mask
+                if _mamu is not None and not hasattr(_mamu, "create_causal_mask"):
+                    setattr(_mamu, "create_causal_mask", _fallback_create_causal_mask)
+                if _mu is not None and not hasattr(_mu, "create_causal_mask"):
+                    setattr(_mu, "create_causal_mask", _fallback_create_causal_mask)
+        except Exception:
+            pass
 
         # 3. Shim use_kernel_forward_from_hub in transformers.integrations if missing
         try:
@@ -83,6 +124,61 @@ class PaddleVLOCREngine:
                     _mru.ROPE_INIT_FUNCTIONS["default"] = default_fn
         except Exception:
             pass
+
+        # 5. Patch create_causal_mask to handle cache_position in transformers >= 4.49 / 5.x
+        try:
+            cls._patch_all_causal_masks()
+        except Exception:
+            pass
+
+    @staticmethod
+    def _patch_causal_mask_in_target(target: Any):
+        """Safely wraps create_causal_mask in a module or class to strip unsupported cache_position."""
+        if hasattr(target, "create_causal_mask"):
+            fn = getattr(target, "create_causal_mask")
+            if not getattr(fn, "_is_paddle_patched", False):
+                try:
+                    import inspect
+                    import functools
+                    sig = inspect.signature(fn)
+                    has_varkw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+                    accepts_cp = has_varkw or ("cache_position" in sig.parameters)
+                    accepts_inputs = has_varkw or ("inputs_embeds" in sig.parameters)
+                    accepts_input = has_varkw or ("input_embeds" in sig.parameters)
+
+                    @functools.wraps(fn)
+                    def _safe_create_causal_mask(*args, **kwargs):
+                        if not accepts_cp:
+                            kwargs.pop("cache_position", None)
+                        if not accepts_inputs and accepts_input and "inputs_embeds" in kwargs:
+                            kwargs["input_embeds"] = kwargs.pop("inputs_embeds")
+                        elif not accepts_input and accepts_inputs and "input_embeds" in kwargs:
+                            kwargs["inputs_embeds"] = kwargs.pop("input_embeds")
+                        return fn(*args, **kwargs)
+
+                    _safe_create_causal_mask._is_paddle_patched = True
+                    setattr(target, "create_causal_mask", _safe_create_causal_mask)
+                except Exception:
+                    pass
+
+    @classmethod
+    def _patch_all_causal_masks(cls):
+        """Scans transformers modules and remote code modules to patch create_causal_mask."""
+        import sys
+        for mod_name in ['transformers.masking_utils', 'transformers.modeling_attn_mask_utils']:
+            try:
+                if mod_name in sys.modules:
+                    cls._patch_causal_mask_in_target(sys.modules[mod_name])
+                else:
+                    import importlib
+                    m = importlib.import_module(mod_name)
+                    cls._patch_causal_mask_in_target(m)
+            except Exception:
+                pass
+
+        for name, m in list(sys.modules.items()):
+            if "paddleocr" in name.lower() or "modeling_" in name.lower():
+                cls._patch_causal_mask_in_target(m)
 
     def _load_model_instance(self, model_target: str, device: str, dtype: Any) -> tuple:
         self._patch_transformers_compatibility()
@@ -166,6 +262,9 @@ class PaddleVLOCREngine:
                 return orig_fwd(*args, **kwargs)
             model.forward = safe_fwd
 
+        # Vá tất cả dynamic modules của PaddleOCR-VL nếu vừa nạp vào sys.modules
+        self._patch_all_causal_masks()
+
         return processor, model
 
     def _init_engine(self):
@@ -240,8 +339,12 @@ class PaddleVLOCREngine:
                     except Exception:
                         inputs = self.processor(images=img_rgb, text=text_prompt, return_tensors="pt").to(self.model.device)
 
-                if inputs is not None and "input_ids" in inputs and "cache_position" not in inputs:
-                    inputs["cache_position"] = torch.arange(0, inputs["input_ids"].shape[1], device=self.model.device)
+                if inputs is not None and "input_ids" in inputs:
+                    # In newer Transformers, cache_position should not be explicitly passed in generate kwargs
+                    inputs.pop("cache_position", None)
+
+                # Ensure all dynamic masking utilities remain patched during generation
+                self._patch_all_causal_masks()
 
                 with torch.no_grad():
                     outputs = self.model.generate(**inputs, max_new_tokens=2048)
@@ -288,6 +391,12 @@ class PaddleVLOCREngine:
                 "text": "古南交，周號越裳。",
                 "confidence": 0.98
             }]
+
+# Tự động đồng bộ và vá môi trường Transformers ngay khi module được nạp
+try:
+    PaddleVLOCREngine._patch_transformers_compatibility()
+except Exception:
+    pass
 
 class BaseOCREngine:
     def __init__(self, model_name: str = "PP-OCRv4", use_gpu: bool = False):
