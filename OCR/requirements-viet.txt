@@ -1,5 +1,6 @@
 # Paddle runtime is installed separately from the official CPU/CUDA index.
 paddleocr==3.7.0
+psutil>=5.9,<8
 paddlex[ocr-core]==3.7.2
 numpy>=1.24,<3
 pillow>=10.2,<13

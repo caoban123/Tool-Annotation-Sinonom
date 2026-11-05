@@ -81,11 +81,15 @@ def test_scan_failure_keeps_later_text_and_resume(tmp_path):
     assert [p['is_cached'] for p in result['pages']] == [True, False, True]
 
 
-def test_native_only_does_not_import_numpy_or_start_ocr(tmp_path, monkeypatch):
+@pytest.mark.parametrize('backend', ['paddle', 'paddle_vietocr'])
+def test_native_only_does_not_import_numpy_or_start_ocr(tmp_path, monkeypatch, backend):
     settings = configuration(tmp_path, Path('tests/fixtures/sample_text.pdf'))
+    settings['ocr_backend'] = backend
     monkeypatch.setitem(sys.modules, 'paddle', None)
     monkeypatch.setitem(sys.modules, 'paddleocr', None)
     monkeypatch.setitem(sys.modules, 'numpy', None)
+    monkeypatch.setitem(sys.modules, 'torch', None)
+    monkeypatch.setitem(sys.modules, 'vietocr', None)
     monkeypatch.setattr('OCR.viet_runner.WorkerEngine', lambda config: pytest.fail('unnecessary OCR'))
     result = run(settings)
     assert result['complete'] and result['method_counts']['ocr'] == 0

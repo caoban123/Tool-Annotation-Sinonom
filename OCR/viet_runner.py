@@ -52,9 +52,14 @@ def checkpoint_digest(page):
 
 
 def _worker(connection, config):
+    engine = None
     try:
-        from OCR.utils.viet_engine import VietnameseOCREngine
-        engine = VietnameseOCREngine(config)
+        if config.get('ocr_backend', 'paddle') == 'paddle_vietocr':
+            from OCR.utils.vietocr_engine import PaddleVietOCREngine
+            engine = PaddleVietOCREngine(config)
+        else:
+            from OCR.utils.viet_engine import VietnameseOCREngine
+            engine = VietnameseOCREngine(config)
         connection.send(('ready', engine.info))
         while True:
             image = connection.recv()
@@ -71,6 +76,8 @@ def _worker(connection, config):
     except Exception:
         connection.send(('error', traceback.format_exc()))
     finally:
+        if engine is not None and hasattr(engine, 'close'):
+            engine.close()
         connection.close()
 
 
@@ -107,6 +114,20 @@ class WorkerEngine:
 
     def close(self):
         if self.process.is_alive():
+            # The hybrid engine owns a separate Torch subprocess. Kill descendants
+            # as well when a native Paddle/Torch operation exceeds the deadline.
+            try:
+                import psutil
+                children = psutil.Process(self.process.pid).children(recursive=True)
+                for child in reversed(children):
+                    try:
+                        child.kill()
+                    except psutil.NoSuchProcess:
+                        pass
+            except ImportError:
+                pass
+            except psutil.NoSuchProcess:
+                pass
             self.process.terminate()
             self.process.join(5)
             if self.process.is_alive():
@@ -144,6 +165,9 @@ def run(config, engine=None):
                     render_scale=2.0, rec_batch_size=16, det_limit_side_len=1280,
                     use_textline_orientation=False, device='gpu:0', review_score=.7)
     settings.update(config)
+    backend = settings.get('ocr_backend', 'paddle')
+    if backend not in ('paddle', 'paddle_vietocr'):
+        raise ValueError('ocr_backend must be paddle or paddle_vietocr')
     if not 0 <= settings['review_score'] <= 1:
         raise ValueError('review_score must be in 0..1')
     digest = digest_file(path)
@@ -151,6 +175,14 @@ def run(config, engine=None):
                 'rec_batch_size', 'det_limit_side_len', 'use_textline_orientation', 'device')}
     identity.update(pipeline_version=1, paddleocr='3.7.0', paddlex='3.7.2', paddle='3.2.2')
     identity.update(routing_version=ROUTING_VERSION, input_mode=mode)
+    if backend == 'paddle_vietocr':
+        from OCR.utils.vietocr_reader import WEIGHTS_SHA256
+        identity['recognizer'] = 'VietOCR/vgg_transformer'
+        identity.update(ocr_backend=backend, vietocr='0.3.13', hybrid_pipeline_version=1,
+                        torch='2.6.0', vietocr_model='vgg_transformer', weights_sha256=WEIGHTS_SHA256)
+        folder = Path(__file__).parent / 'configs/vietocr'
+        identity['vietocr_config_sha256'] = hashlib.sha256(
+            (folder / 'base.yml').read_bytes() + (folder / 'vgg-transformer.yml').read_bytes()).hexdigest()
     signature = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     output = Path(config['output_dir']).resolve()
     cache_dir = Path(config.get('checkpoint_dir') or output / 'checkpoints').resolve()
@@ -193,12 +225,9 @@ def run(config, engine=None):
                     pass
             if page is None:
                 route = route_page(path, number, mode, forced, document)
-                # Initialization failures are fatal configuration errors, not blank pages.
-                if route['method'] == 'ocr' and engine is None:
-                    report('model_loading', page=number)
-                    engine = WorkerEngine(settings)
                 began = time.monotonic()
                 image = None
+                initializing = inference_started = False
                 try:
                     if route['method'] == 'pdf_text':
                         if not route['text'].strip():
@@ -207,6 +236,13 @@ def run(config, engine=None):
                         page_engine = dict(engine_type='PDFiumText', model_name=None, is_mock=False)
                     else:
                         image = load_page(path, number, settings['render_scale'])
+                        if engine is None:
+                            report('model_loading', page=number)
+                            # Initialization failures are fatal configuration errors.
+                            initializing = True
+                            engine = WorkerEngine(settings)
+                            initializing = False
+                        inference_started = True
                         boxes = engine.recognize_image(image)
                         text = '\n'.join(b['text'] for b in boxes)
                         page_engine = engine.info
@@ -221,12 +257,14 @@ def run(config, engine=None):
                     page['payload_sha256'] = checkpoint_digest(page)
                     write_json(checkpoint, page)
                 except Exception as error:
+                    if initializing:
+                        raise
                     traceback.print_exc()
                     errors.append(dict(page_number=number, error=str(error)))
                     page = dict(page_number=number, text='', boxes=[], status='error',
                                 method=route['method'], routing_reason=route['reason'], text_quality=route['quality'],
                                 is_cached=False, inference_time_sec=round(time.monotonic() - began, 3))
-                    if owns_engine and engine is not None:
+                    if owns_engine and engine is not None and inference_started:
                         engine.close()
                         engine = None
                 finally:

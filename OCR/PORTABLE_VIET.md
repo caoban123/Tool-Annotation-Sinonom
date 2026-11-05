@@ -38,7 +38,47 @@ Internet cần cho lần đầu cài thư viện/Python và tải model. Không 
 không thay đường dẫn thiếu bằng ảnh mẫu. `OCR_NOTEBOOK_SMOKE=1` chỉ kiểm tra các cell;
 không tạo kết quả OCR và không kiểm chứng độ chính xác.
 
-## Cấu hình ưu tiên tốc độ
+## Paddle tìm dòng + VietOCR đọc chữ (mặc định mới)
+
+Trong cell 1, giữ `OCR_BACKEND="paddle_vietocr"`. Paddle dùng detector
+`PP-OCRv5_mobile_det`, cắt và chỉnh phối cảnh từng dòng, VietOCR `vgg_transformer`
+đọc tiếng Việt; kết quả ghép theo hàng từ trên xuống, trái sang phải. Dòng lặp
+được giữ. Đây là thứ tự dòng cơ bản, cần soát lại sách nhiều cột/bảng.
+
+VietOCR chạy trong môi trường Torch riêng, không cài chung với Paddle. Notebook
+tự tạo và cài hai môi trường khi có trang cần OCR; PDF text thuần vẫn bỏ qua cả hai.
+Weights VietOCR tải lần đầu khoảng 152 MB và được giữ ở `WORK_DIR/vietocr_weights`.
+Metadata ghi tên model, checksum weights, phiên bản và điểm từng dòng.
+
+Để thử mới trên tài liệu đã chạy, đặt `INPUT_MODE="ocr"`, chọn 5–10 trang và Run all.
+Nếu giữ `auto`, trang có lớp text hợp lệ vẫn được lấy trực tiếp, không qua VietOCR.
+Cache của VietOCR tách khỏi Paddle; không cần xóa kết quả cũ để đổi chế độ.
+Giữ `USE_TEXTLINE_ORIENTATION=False` và xoay trang/dòng về đúng chiều trước.
+VietOCR có thể chậm hơn trên CPU; ngân sách notebook mới là `PAGE_TIMEOUT=300`.
+Quá thời gian hoặc dòng không kết thúc trong 512 token sẽ báo lỗi, không cache trang thiếu.
+
+Muốn đối chiếu luồng cũ, đặt `OCR_BACKEND="paddle"`; lúc đó `RECOGNIZER` chọn
+PP-OCRv6 Small/Medium và tùy chọn hướng dòng mới có hiệu lực. Chất lượng cần đo
+trên trang thật; không coi việc thay model là bảo đảm chính xác hơn.
+
+Nguồn: [VietOCR chính thức](https://github.com/pbcquoc/vietocr),
+[cặp phiên bản Torch/torchvision](https://pytorch.org/get-started/previous-versions/).
+
+## Kiểm chứng luồng Paddle + VietOCR
+
+- Kiểm thử CPU Windows/Python 3.10 với Paddle 3.2.2, PaddleOCR 3.7.0,
+  VietOCR 0.3.13, Torch 2.6.0 và torchvision 0.21.0 trong hai môi trường riêng.
+- Đã chạy weights thật trên ảnh mẫu, ảnh có dấu tiếng Việt và trang 5 của
+  `Đại Việt Địa Dư Toàn Biên.pdf` (30 dòng), xuất ZIP/text/metadata và chạy lại từ cache.
+- Ảnh chữ rõ đọc được dấu ở “Lịch triều hiến chương loại chí”, “Nguyễn, Trường, Đặng”,
+  nhưng mất dấu chấm cuối dòng. Trang sách còn lỗi chữ và phần cuối dòng;
+  confidence cao vẫn cần soát. Chưa có nhãn chuẩn để kết luận hơn PP-OCRv6.
+- 48 bài kiểm tra: cache riêng, tọa độ/crop, Unicode qua tiến trình, timeout và dừng
+  tiến trình con, lỗi render, PDF text bỏ qua OCR, bundle và notebook smoke.
+- Chưa chạy inference GPU hoặc cài mới trên Colab/Kaggle. Notebook dùng Python 3.11;
+  smoke chỉ kiểm tra thực thi cell, không xác nhận chất lượng model.
+
+## Cấu hình Paddle ưu tiên tốc độ
 
 - Phát hiện: `PP-OCRv5_mobile_det`; nhận dạng: `PP-OCRv6_small_rec` hỗ trợ tiếng Việt.
 - Batch 16 dòng, giới hạn cạnh ảnh phát hiện 1280, render 144 DPI.
@@ -49,7 +89,7 @@ Có thể đổi `RECOGNIZER="PP-OCRv6_medium_rec"` để đối chiếu chất 
 chọn vì ưu tiên tốc độ; không xem model lớn hơn là bảo đảm đúng dấu trên mọi sách.
 
 Chữ nhỏ: thử `DET_LIMIT_SIDE_LEN=1920` và `RENDER_SCALE=3.0` trên vài trang trước.
-Thiếu VRAM: giảm `REC_BATCH_SIZE` xuống 8 hoặc 4. Dòng quay 180°: bật
+Thiếu VRAM ở chế độ Paddle: giảm `REC_BATCH_SIZE` xuống 8 hoặc 4. Dòng quay 180°: bật
 `USE_TEXTLINE_ORIENTATION`. Trang quay 90°/270° cần xoay về đúng hướng trước.
 `GPU_WHEEL="cu126"` dùng CUDA 12.6; chọn `cu118` cho driver cũ/GPU P100.
 Notebook kiểm tra tensor trên thiết bị đã chọn, không âm thầm chuyển GPU sang CPU.
@@ -83,7 +123,7 @@ model và cấu hình nhận dạng/render; không lẫn hai sách cùng tên. T
 Đổi ngưỡng kiểm tra không phải nhận dạng lại; đổi model/cấu hình ảnh sẽ tạo cache khác.
 Đặt `FORCE_REPROCESS=True` nếu chủ động muốn chạy lại tất cả trang đã chọn.
 
-Model được giữ trong worker qua nhiều trang. Quá `PAGE_TIMEOUT` (mặc định 120 giây
+Model được giữ trong worker qua nhiều trang. Quá `PAGE_TIMEOUT` (notebook mới: 300 giây
 nhận dạng, không tính tải model/render) thì dừng worker, ghi lỗi và tiếp tục trang sau.
 Lỗi cài đặt/nạp model dừng ngay để sửa môi trường. Mỗi trang được render riêng để
 không giữ toàn bộ sách trong RAM. Trước khi thay một bản OCR đang dùng, đối chiếu

@@ -1,0 +1,2 @@
+Configuration source: https://github.com/pbcquoc/vietocr/tree/fe8c3a7fc714aec57ab81cec844eb3adf0c1636c/config
+VietOCR package: 0.3.13

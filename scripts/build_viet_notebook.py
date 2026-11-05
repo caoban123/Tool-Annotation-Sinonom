@@ -8,6 +8,10 @@ import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 FILES = ['OCR/viet_runner.py', 'OCR/utils/__init__.py', 'OCR/utils/viet_engine.py',
+         'OCR/utils/vietocr_engine.py', 'OCR/utils/vietocr_reader.py',
+         'OCR/configs/vietocr/base.yml', 'OCR/configs/vietocr/vgg-transformer.yml',
+         'OCR/configs/vietocr/SOURCE.txt', 'OCR/requirements-vietocr.txt',
+         'OCR/configs/vietocr/LICENSE',
          'OCR/utils/notebook_process.py', 'OCR/utils/render_pdf.py', 'OCR/requirements-viet.txt',
          'OCR/requirements-pdf.txt', 'Crawl/extractors/pdf_pages.py',
          'tests/fixtures/sample_viet_scan.png']
@@ -30,8 +34,8 @@ def build_ocr_viet_notebook(target=None):
 
     [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/caoban123/Tool-Annotation-Sinonom/blob/main/OCR/notebooks/02_OCR_Viet.ipynb)
 
-    Ưu tiên tốc độ: `PP-OCRv5_mobile_det` + `PP-OCRv6_small_rec` (hỗ trợ tiếng Việt).
-    Nhận dạng theo batch dòng; giữ nguyên dấu, dòng lặp và tọa độ từ model.
+    Mặc định: `PP-OCRv5_mobile_det` tìm/cắt dòng, VietOCR `vgg_transformer` đọc tiếng Việt.
+    Đặt `OCR_BACKEND="paddle"` để đối chiếu với PP-OCRv6; giữ dòng lặp và tọa độ gốc.
     Không có cam kết chính xác tuyệt đối: đối chiếu các dòng điểm thấp và trang trắng.
     Chế độ `auto` lấy text trực tiếp ở trang dùng được, chỉ OCR trang scan/text lỗi.
     PDF trộn được ghép theo số trang gốc; PDF text thuần không cần cài Paddle hay GPU.
@@ -57,9 +61,10 @@ def build_ocr_viet_notebook(target=None):
     DET_LIMIT_SIDE_LEN = 1280  # tăng 1920 nếu mất chữ nhỏ trên trang lớn
     REC_BATCH_SIZE = 16  # giảm 8 hoặc 4 nếu thiếu VRAM
     DETECTOR = "PP-OCRv5_mobile_det"
+    OCR_BACKEND = "paddle_vietocr"  # Paddle tìm dòng + VietOCR đọc tiếng Việt; "paddle" dùng PP-OCR
     RECOGNIZER = "PP-OCRv6_small_rec"  # có thể thử PP-OCRv6_medium_rec để đối chiếu chất lượng
     USE_TEXTLINE_ORIENTATION = False  # True nếu dòng chữ bị quay 180 độ
-    PAGE_TIMEOUT = 120  # thời gian nhận dạng một trang; timeout -> báo lỗi và đi tiếp
+    PAGE_TIMEOUT = 300  # VietOCR transformer có thể chậm trên CPU; timeout -> báo lỗi và đi tiếp
     REVIEW_SCORE = 0.7  # chỉ gắn cờ kiểm tra, không xóa dòng điểm thấp
     FORCE_REPROCESS = False
     CHECKPOINT_DIR = ""  # thư mục Drive đã mount để giữ cache sau khi hết phiên
@@ -96,7 +101,13 @@ def build_ocr_viet_notebook(target=None):
                        PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK='True')
     ENV_DIR = WORK_DIR / ('env_cpu' if DEVICE == 'cpu' else 'env_' + GPU_WHEEL)
     PYTHON = ENV_DIR / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
+    VIETOCR_ENV = WORK_DIR / ('vietocr_cpu' if DEVICE == 'cpu' else 'vietocr_' + GPU_WHEEL)
+    VIETOCR_PYTHON = VIETOCR_ENV / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
     if not SMOKE:
+        if OCR_BACKEND not in ('paddle', 'paddle_vietocr'):
+            raise ValueError('OCR_BACKEND must be paddle or paddle_vietocr')
+        if OCR_BACKEND == 'paddle_vietocr' and USE_TEXTLINE_ORIENTATION:
+            raise ValueError('VietOCR cần dòng ngang đúng chiều: USE_TEXTLINE_ORIENTATION=False')
         if DEVICE != 'cpu' and not (DEVICE.startswith('gpu:') and DEVICE[4:].isdigit()):
             raise ValueError('DEVICE phải là cpu hoặc gpu:N')
         if GPU_WHEEL not in ('cu118', 'cu126'):
@@ -153,6 +164,24 @@ def build_ocr_viet_notebook(target=None):
     """.replace('__DEVICE__', repr(DEVICE))
         if plan['ocr_pages']:
             subprocess.run([str(PYTHON), '-c', preflight], env=environment, check=True)
+            if OCR_BACKEND == 'paddle_vietocr':
+                if not VIETOCR_PYTHON.exists():
+                    subprocess.run(uv + ['venv', '--python', '3.11', '--seed', str(VIETOCR_ENV)],
+                                   env=bootstrap_env, check=True)
+                torch_index = 'cpu' if DEVICE == 'cpu' else GPU_WHEEL
+                subprocess.run([str(VIETOCR_PYTHON), '-m', 'pip', 'install',
+                                '--timeout', '120', '--retries', '5',
+                                'torch==2.6.0', 'torchvision==0.21.0', '--index-url',
+                                'https://download.pytorch.org/whl/' + torch_index],
+                               env=environment, check=True)
+                subprocess.run([str(VIETOCR_PYTHON), '-m', 'pip', 'install', '-r',
+                                str(SOURCE_DIR / 'OCR/requirements-vietocr.txt'),
+                                '--timeout', '120', '--retries', '5'],
+                               env=environment, check=True)
+                torch_check = ("import torch,torchvision,vietocr; device=" +
+                               repr(DEVICE.replace('gpu:', 'cuda:')) +
+                               "; print('VietOCR device:',device); print(torch.ones(1,device=device))")
+                subprocess.run([str(VIETOCR_PYTHON), '-c', torch_check], env=environment, check=True)
         else:
             print('PDF text: bỏ qua cài/nạp model OCR, không cần GPU.')
     else:
@@ -167,6 +196,7 @@ def build_ocr_viet_notebook(target=None):
     if not 1 <= START_PAGE <= end_page <= total_pages:
         raise ValueError(f'Khoảng trang không hợp lệ; tài liệu có {total_pages} trang')
     config = dict(input_path=str(input_file), output_dir=str(WORK_DIR / 'output'),
+                  ocr_backend=OCR_BACKEND, vietocr_python=str(VIETOCR_PYTHON),
                   detector=DETECTOR, recognizer=RECOGNIZER,
                   input_mode=INPUT_MODE, force_ocr_pages=FORCE_OCR_PAGES,
                   start_page=START_PAGE, end_page=end_page, device=DEVICE,
@@ -223,7 +253,12 @@ def build_ocr_viet_notebook(target=None):
     Kiểm tra tự động không phát hiện hết lớp OCR cũ sai chữ: dùng `FORCE_OCR_PAGES` hoặc
     `INPUT_MODE="ocr"` khi cần. Đổi chế độ sẽ dùng cache riêng.
 
-    API/model: [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR),
+    VietOCR cần dòng ngang đúng chiều, không bật `USE_TEXTLINE_ORIENTATION` ở chế độ kết hợp.
+    Paddle và Torch chạy trong hai môi trường/tiến trình riêng. Lần đầu tải thêm weights
+    VietOCR khoảng 152 MB. `RECOGNIZER` chỉ dùng khi `OCR_BACKEND="paddle"`.
+    Để thử model mới trên PDF có lớp text cũ, chọn `INPUT_MODE="ocr"` và 5–10 trang trước.
+
+    API/model: [VietOCR](https://github.com/pbcquoc/vietocr), [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR),
     [PP-OCRv6](https://www.paddleocr.ai/latest/en/version3.x/algorithm/PP-OCRv6/PP-OCRv6.html).
     ''')
     notebook = dict(cells=cells, metadata=dict(
