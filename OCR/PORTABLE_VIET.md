@@ -53,6 +53,9 @@ Thiếu VRAM: giảm `REC_BATCH_SIZE` xuống 8 hoặc 4. Dòng quay 180°: bậ
 `USE_TEXTLINE_ORIENTATION`. Trang quay 90°/270° cần xoay về đúng hướng trước.
 `GPU_WHEEL="cu126"` dùng CUDA 12.6; chọn `cu118` cho driver cũ/GPU P100.
 Notebook kiểm tra tensor trên thiết bị đã chọn, không âm thầm chuyển GPU sang CPU.
+Nếu báo không tìm thấy `nvidia-smi`, kiểm tra phiên đã bật GPU chưa. Bật GPU trong
+cài đặt runtime Colab hoặc Accelerator của Kaggle rồi chạy lại notebook. Nếu chỉ
+có CPU, đổi `DEVICE="cpu"` ở cell 1 rồi Run all; nhiều trang scan sẽ chạy chậm.
 Model và thư viện nằm trong môi trường riêng, tránh đè lên PyTorch của notebook Hán.
 
 ## Đầu ra và chạy tiếp

@@ -120,7 +120,21 @@ def build_ocr_viet_notebook(target=None):
         print('Trang lấy text trực tiếp:', plan['text_pages'], '| Trang cần OCR:', plan['ocr_pages'])
         if plan['ocr_pages']:
             if DEVICE != 'cpu':
-                subprocess.run(['nvidia-smi'], check=True)
+                import shutil
+                nvidia_smi = shutil.which('nvidia-smi')
+                if nvidia_smi is None:
+                    raise RuntimeError(
+                        'Đang chọn DEVICE="gpu:0" nhưng phiên này không có công cụ NVIDIA. '
+                        'Colab: bật GPU trong Runtime > Change runtime type. '
+                        'Kaggle: Settings > Accelerator > GPU, rồi chạy lại notebook. '
+                        'Nếu muốn chạy CPU, đổi DEVICE="cpu" ở cell 1 rồi Run all '
+                        '(OCR nhiều trang sẽ chậm).')
+                gpu_check = subprocess.run([nvidia_smi], capture_output=True, text=True)
+                if gpu_check.returncode:
+                    raise RuntimeError('GPU NVIDIA chưa sẵn sàng; bật GPU rồi chạy lại, '
+                                       'hoặc chọn DEVICE="cpu" ở cell 1. Chi tiết: ' +
+                                       gpu_check.stderr.strip())
+                print(gpu_check.stdout)
             runtime = 'paddlepaddle' if DEVICE == 'cpu' else 'paddlepaddle-gpu'
             index = 'cpu' if DEVICE == 'cpu' else GPU_WHEEL
             subprocess.run([str(PYTHON), '-m', 'pip', 'install', runtime + '==3.2.2',
