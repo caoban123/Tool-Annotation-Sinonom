@@ -60,7 +60,7 @@ def build_ocr_viet_notebook(target=None):
     RENDER_SCALE = 2.0  # 144 DPI; tăng 3.0 cho chữ nhỏ (chậm hơn)
     DET_LIMIT_SIDE_LEN = 1280  # tăng 1920 nếu mất chữ nhỏ trên trang lớn
     REC_BATCH_SIZE = 16  # giảm 8 hoặc 4 nếu thiếu VRAM
-    DETECTOR = "PP-OCRv5_mobile_det"
+    DETECTOR = "PP-OCRv5_mobile_det" # DETECTOR = "PP-OCRv5_server_det" mạnh hơn
     OCR_BACKEND = "paddle_vietocr"  # Paddle tìm dòng + VietOCR đọc tiếng Việt; "paddle" dùng PP-OCR
     RECOGNIZER = "PP-OCRv6_small_rec"  # có thể thử PP-OCRv6_medium_rec để đối chiếu chất lượng
     USE_TEXTLINE_ORIENTATION = False  # True nếu dòng chữ bị quay 180 độ
@@ -178,7 +178,8 @@ def build_ocr_viet_notebook(target=None):
                                 str(SOURCE_DIR / 'OCR/requirements-vietocr.txt'),
                                 '--timeout', '120', '--retries', '5'],
                                env=environment, check=True)
-                torch_check = ("import torch,torchvision,vietocr; device=" +
+                torch_check = ("import torch,torchvision; "
+                               "from vietocr.tool.translate import build_model,process_input,translate; device=" +
                                repr(DEVICE.replace('gpu:', 'cuda:')) +
                                "; print('VietOCR device:',device); print(torch.ones(1,device=device))")
                 subprocess.run([str(VIETOCR_PYTHON), '-c', torch_check], env=environment, check=True)

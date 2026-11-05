@@ -19,8 +19,10 @@ def main():
         import torch
         import yaml
         from PIL import Image
-        from vietocr.tool.predictor import Predictor
-        from vietocr.tool.translate import process_input, translate
+        # Predictor imports the obsolete gdown/pkg_resources downloader even
+        # for local weights. We download/verify weights ourselves, so use the
+        # inference API directly and avoid that unnecessary import chain.
+        from vietocr.tool.translate import build_model, process_input, translate
         options = json.loads(sys.argv[1])
         device = options['device'].replace('gpu:', 'cuda:')
         if device.startswith('cuda:') and (not torch.cuda.is_available() or
@@ -48,8 +50,9 @@ def main():
         weights_hash = hashlib.sha256(destination.read_bytes()).hexdigest()
         if weights_hash != WEIGHTS_SHA256:
             raise RuntimeError(f'Invalid VietOCR weights checksum. Remove {destination} and rerun.')
-        config['weights'] = str(destination)
-        predictor = Predictor(config)
+        model, vocab = build_model(config)
+        model.load_state_dict(torch.load(destination, map_location=torch.device(device), weights_only=True))
+        model.eval()
     print(json.dumps({'ready': True, 'weights_sha256': weights_hash,
                       'torch_version': torch.__version__}), file=protocol, flush=True)
     for line in sys.stdin:
@@ -67,11 +70,11 @@ def main():
                     for start in range(0, len(bucket), batch_size):
                         batch = bucket[start:start + batch_size]
                         tensor = torch.cat([t for _, t in batch]).to(device)
-                        tokens, probabilities = translate(tensor, predictor.model, max_seq_length=512)
+                        tokens, probabilities = translate(tensor, model, max_seq_length=512)
                         for (index, _), sequence, probability in zip(batch, tokens.tolist(), probabilities):
                             if 2 not in sequence:
                                 raise RuntimeError('VietOCR line exceeded 512 tokens before EOS; split the line')
-                            text = predictor.vocab.decode(sequence)
+                            text = vocab.decode(sequence)
                             score = float(probability) if text.strip() else 0.0
                             results[index] = {'text': text, 'confidence': score}
             response = {'results': results}

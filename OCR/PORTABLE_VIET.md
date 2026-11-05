@@ -73,10 +73,17 @@ Nguồn: [VietOCR chính thức](https://github.com/pbcquoc/vietocr),
 - Ảnh chữ rõ đọc được dấu ở “Lịch triều hiến chương loại chí”, “Nguyễn, Trường, Đặng”,
   nhưng mất dấu chấm cuối dòng. Trang sách còn lỗi chữ và phần cuối dòng;
   confidence cao vẫn cần soát. Chưa có nhãn chuẩn để kết luận hơn PP-OCRv6.
-- 48 bài kiểm tra: cache riêng, tọa độ/crop, Unicode qua tiến trình, timeout và dừng
+- 49 bài kiểm tra (bật `VIETOCR_TEST_PYTHON` và `VIETOCR_TEST_WEIGHTS` cho bài weights thật): cache riêng, tọa độ/crop, Unicode qua tiến trình, timeout và dừng
   tiến trình con, lỗi render, PDF text bỏ qua OCR, bundle và notebook smoke.
 - Chưa chạy inference GPU hoặc cài mới trên Colab/Kaggle. Notebook dùng Python 3.11;
   smoke chỉ kiểm tra thực thi cell, không xác nhận chất lượng model.
+
+Log Kaggle từng dừng ở `ModuleNotFoundError: No module named 'pkg_resources'`:
+`Predictor` của VietOCR kéo theo downloader `gdown` cũ dù weights đã được quản lý
+riêng. Bản sửa dùng trực tiếp `build_model`, nạp state dict đã kiểm tra SHA256
+với `weights_only=True`; không cần import downloader hay cài thêm `pkg_resources`.
+Kiểm thử weights thật chặn cả `gdown`, `pkg_resources`, `Predictor` và utils cũ
+vẫn khởi tạo và nhận dạng thành công. Cell 3 cũng kiểm tra module inference thật.
 
 ## Cấu hình Paddle ưu tiên tốc độ
 

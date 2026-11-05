@@ -1,5 +1,6 @@
 """Hybrid OCR boundaries: real crop geometry, reader IPC and independent cache."""
 import json
+import os
 import subprocess
 import sys
 import types
@@ -159,3 +160,36 @@ def test_worker_close_kills_reader_descendant():
     finally:
         if worker.process.is_alive():
             worker.close()
+
+
+@pytest.mark.skipif(not os.environ.get('VIETOCR_TEST_PYTHON'),
+                    reason='Set VIETOCR_TEST_PYTHON and VIETOCR_TEST_WEIGHTS for real inference')
+def test_real_reader_without_pkg_resources_or_gdown():
+    """Reproduce the fresh Kaggle environment without importing legacy downloaders."""
+    import base64
+    import io
+    from pathlib import Path
+    from PIL import ImageDraw
+    image = Image.new('RGB', (300, 40), 'white')
+    ImageDraw.Draw(image).text((5, 10), 'Viet Nam 123', fill='black')
+    encoded = io.BytesIO()
+    image.save(encoded, format='PNG')
+    request = json.dumps({'images': [base64.b64encode(encoded.getvalue()).decode()]}) + '\n'
+    wrapper = """import sys,runpy
+sys.modules['pkg_resources'] = None
+sys.modules['gdown'] = None
+sys.modules['vietocr.tool.predictor'] = None
+sys.modules['vietocr.tool.utils'] = None
+sys.argv = ['vietocr_reader', sys.argv[1]]
+runpy.run_module('OCR.utils.vietocr_reader', run_name='__main__')
+"""
+    options = dict(device='cpu', weights_dir=os.environ['VIETOCR_TEST_WEIGHTS'])
+    result = subprocess.run([os.environ['VIETOCR_TEST_PYTHON'], '-u', '-c', wrapper,
+                             json.dumps(options)], input=request, capture_output=True,
+                             encoding='utf-8', timeout=120, cwd=Path(__file__).resolve().parents[1],
+                             env=dict(os.environ, PYTHONIOENCODING='utf-8'))
+    assert result.returncode == 0, result.stderr
+    ready, response = map(json.loads, result.stdout.splitlines())
+    assert ready['ready'] and len(ready['weights_sha256']) == 64
+    assert response['results'][0]['text'].strip()
+    assert 0 <= response['results'][0]['confidence'] <= 1
