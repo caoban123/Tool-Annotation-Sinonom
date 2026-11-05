@@ -9,10 +9,11 @@ import zlib
 ROOT = Path(__file__).resolve().parents[1]
 FILES = ['OCR/viet_runner.py', 'OCR/utils/__init__.py', 'OCR/utils/viet_engine.py',
          'OCR/utils/notebook_process.py', 'OCR/utils/render_pdf.py', 'OCR/requirements-viet.txt',
+         'OCR/requirements-pdf.txt', 'Crawl/extractors/pdf_pages.py',
          'tests/fixtures/sample_viet_scan.png']
 
 
-def build_ocr_viet_notebook():
+def build_ocr_viet_notebook(target=None):
     payload = json.dumps({name: base64.b64encode((ROOT / name).read_bytes()).decode()
                           for name in FILES}).encode()
     cells = []
@@ -25,13 +26,15 @@ def build_ocr_viet_notebook():
         cells.append(item)
 
     cell('markdown', '''
-    # OCR tiếng Việt — PaddleOCR mobile / Colab / Kaggle
+    # PDF tiếng Việt — trích xuất text + OCR scan / Colab / Kaggle
 
     [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/caoban123/Tool-Annotation-Sinonom/blob/main/OCR/notebooks/02_OCR_Viet.ipynb)
 
     Ưu tiên tốc độ: `PP-OCRv5_mobile_det` + `PP-OCRv6_small_rec` (hỗ trợ tiếng Việt).
     Nhận dạng theo batch dòng; giữ nguyên dấu, dòng lặp và tọa độ từ model.
     Không có cam kết chính xác tuyệt đối: đối chiếu các dòng điểm thấp và trang trắng.
+    Chế độ `auto` lấy text trực tiếp ở trang dùng được, chỉ OCR trang scan/text lỗi.
+    PDF trộn được ghép theo số trang gốc; PDF text thuần không cần cài Paddle hay GPU.
 
     **Cách chạy:** tải PDF/ảnh lên, điền `INPUT_PATH` trong cell 1, rồi **Run all**.
     Colab: Runtime → Change runtime type → GPU. Kaggle: bật GPU và Internet.
@@ -46,6 +49,8 @@ def build_ocr_viet_notebook():
     INPUT_PATH = ""  # Colab: /content/sach.pdf; Kaggle: /kaggle/input/ten-dataset/sach.pdf
     START_PAGE = 1
     END_PAGE = None  # None = hết tài liệu; số trang bắt đầu từ 1
+    INPUT_MODE = "auto"  # auto: tự chọn từng trang; ocr: ép OCR; text: chỉ lấy lớp text PDF
+    FORCE_OCR_PAGES = []  # VD [3, 7]: ép OCR những trang này trong chế độ auto
     DEVICE = "gpu:0"  # "cpu" nếu không dùng GPU; không tự đổi GPU sang CPU
     GPU_WHEEL = "cu126"  # cu118 cho driver cũ / GPU P100; cần chọn trước khi cài
     RENDER_SCALE = 2.0  # 144 DPI; tăng 3.0 cho chữ nhỏ (chậm hơn)
@@ -96,8 +101,6 @@ def build_ocr_viet_notebook():
             raise ValueError('DEVICE phải là cpu hoặc gpu:N')
         if GPU_WHEEL not in ('cu118', 'cu126'):
             raise ValueError('GPU_WHEEL phải là cu118 hoặc cu126')
-        if DEVICE != 'cpu':
-            subprocess.run(['nvidia-smi'], check=True)
         bootstrap_dir = WORK_DIR / 'bootstrap'
         subprocess.run([sys.executable, '-m', 'pip', 'install', '--target', str(bootstrap_dir),
                         'uv>=0.9,<1'], check=True)
@@ -106,13 +109,25 @@ def build_ocr_viet_notebook():
         if not PYTHON.exists():
             subprocess.run(uv + ['venv', '--python', '3.11', '--seed', str(ENV_DIR)],
                            env=bootstrap_env, check=True)
-        runtime = 'paddlepaddle' if DEVICE == 'cpu' else 'paddlepaddle-gpu'
-        index = 'cpu' if DEVICE == 'cpu' else GPU_WHEEL
-        subprocess.run([str(PYTHON), '-m', 'pip', 'install', runtime + '==3.2.2',
-                        '--index-url', 'https://www.paddlepaddle.org.cn/packages/stable/' + index + '/'],
-                       env=environment, check=True)
         subprocess.run([str(PYTHON), '-m', 'pip', 'install',
-                        '-r', str(SOURCE_DIR / 'OCR/requirements-viet.txt')], env=environment, check=True)
+                        '-r', str(SOURCE_DIR / 'OCR/requirements-pdf.txt')], env=environment, check=True)
+        plan_config = dict(input_path=str(input_file), start_page=START_PAGE, end_page=END_PAGE,
+                           input_mode=INPUT_MODE, force_ocr_pages=FORCE_OCR_PAGES)
+        plan_code = ('import json,sys; from Crawl.extractors.pdf_pages import plan_input; '
+                     'print(json.dumps(plan_input(json.loads(sys.argv[1]))))')
+        plan = json.loads(subprocess.check_output([str(PYTHON), '-c', plan_code, json.dumps(plan_config)],
+                                                  env=environment, text=True))
+        print('Trang lấy text trực tiếp:', plan['text_pages'], '| Trang cần OCR:', plan['ocr_pages'])
+        if plan['ocr_pages']:
+            if DEVICE != 'cpu':
+                subprocess.run(['nvidia-smi'], check=True)
+            runtime = 'paddlepaddle' if DEVICE == 'cpu' else 'paddlepaddle-gpu'
+            index = 'cpu' if DEVICE == 'cpu' else GPU_WHEEL
+            subprocess.run([str(PYTHON), '-m', 'pip', 'install', runtime + '==3.2.2',
+                            '--index-url', 'https://www.paddlepaddle.org.cn/packages/stable/' + index + '/'],
+                           env=environment, check=True)
+            subprocess.run([str(PYTHON), '-m', 'pip', 'install',
+                            '-r', str(SOURCE_DIR / 'OCR/requirements-viet.txt')], env=environment, check=True)
         preflight = """import paddle, paddleocr
     device = __DEVICE__
     if device.startswith('gpu:'):
@@ -122,7 +137,10 @@ def build_ocr_viet_notebook():
     print('Paddle:', paddle.__version__, 'Device:', paddle.get_device())
     print((paddle.ones([2, 2]) @ paddle.ones([2, 2])).numpy())
     """.replace('__DEVICE__', repr(DEVICE))
-        subprocess.run([str(PYTHON), '-c', preflight], env=environment, check=True)
+        if plan['ocr_pages']:
+            subprocess.run([str(PYTHON), '-c', preflight], env=environment, check=True)
+        else:
+            print('PDF text: bỏ qua cài/nạp model OCR, không cần GPU.')
     else:
         print('SMOKE: không cài Paddle, không chạy model, không xác nhận chất lượng OCR.')
     ''')
@@ -131,11 +149,12 @@ def build_ocr_viet_notebook():
     total_pages = 1 if SMOKE else int(subprocess.check_output(
         [str(PYTHON), '-c', 'from OCR.viet_runner import page_count; import sys; print(page_count(sys.argv[1]))',
          str(input_file)], env=environment, text=True).strip())
-    end_page = total_pages if END_PAGE is None else min(END_PAGE, total_pages)
+    end_page = total_pages if END_PAGE is None else END_PAGE
     if not 1 <= START_PAGE <= end_page <= total_pages:
         raise ValueError(f'Khoảng trang không hợp lệ; tài liệu có {total_pages} trang')
     config = dict(input_path=str(input_file), output_dir=str(WORK_DIR / 'output'),
                   detector=DETECTOR, recognizer=RECOGNIZER,
+                  input_mode=INPUT_MODE, force_ocr_pages=FORCE_OCR_PAGES,
                   start_page=START_PAGE, end_page=end_page, device=DEVICE,
                   render_scale=RENDER_SCALE, det_limit_side_len=DET_LIMIT_SIDE_LEN,
                   rec_batch_size=REC_BATCH_SIZE, use_textline_orientation=USE_TEXTLINE_ORIENTATION,
@@ -164,6 +183,7 @@ def build_ocr_viet_notebook():
         report = json.loads((output / 'viet_metadata.json').read_text(encoding='utf-8'))
         print('ĐỦ TRANG XỬ LÝ' if report['complete'] else 'THIẾU TRANG — xem error_report.json')
         print('Trang cần đối chiếu:', [p['page_number'] for p in report['pages'] if p['needs_review']])
+        print('Cách lấy chữ:', report['method_counts'])
         print(report['full_text'][:3000])
         for name in (report['text_file'], 'viet_metadata.json', 'error_report.json', 'viet_ocr.zip'):
             display(FileLink(os.path.relpath(output / name, Path.cwd())))
@@ -185,6 +205,9 @@ def build_ocr_viet_notebook():
     `progress.json` và checkpoint. Trang trắng/dòng điểm thấp được gắn cờ; điểm confidence
     không phải phần trăm chính xác. Log đầy đủ ở `WORK_DIR/ocr_run.log`.
     Sách nhiều cột hoặc bảng vẫn cần kiểm tra thứ tự đọc. PDF/ảnh được nạp từng trang.
+    Metadata mỗi trang ghi `method=pdf_text` hoặc `ocr`, lý do chọn và chất lượng lớp text.
+    Kiểm tra tự động không phát hiện hết lớp OCR cũ sai chữ: dùng `FORCE_OCR_PAGES` hoặc
+    `INPUT_MODE="ocr"` khi cần. Đổi chế độ sẽ dùng cache riêng.
 
     API/model: [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR),
     [PP-OCRv6](https://www.paddleocr.ai/latest/en/version3.x/algorithm/PP-OCRv6/PP-OCRv6.html).
@@ -193,7 +216,11 @@ def build_ocr_viet_notebook():
         kernelspec=dict(display_name='Python 3', language='python', name='python3'),
         language_info=dict(name='python', version='3.11'), accelerator='GPU', colab=dict(provenance=[])),
         nbformat=4, nbformat_minor=5)
-    target = ROOT / 'OCR/notebooks/02_OCR_Viet.ipynb'
+    target = ROOT / (target or 'OCR/notebooks/02_OCR_Viet.ipynb')
+    if target.parent.parent.name == 'Crawl':
+        for item in cells:
+            item['source'] = item['source'].replace('blob/main/OCR/notebooks/02_OCR_Viet.ipynb',
+                                                    'blob/main/Crawl/notebooks/01_Crawl_Text.ipynb')
     target.write_text(json.dumps(notebook, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
     return target
 

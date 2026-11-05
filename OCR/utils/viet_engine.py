@@ -1,6 +1,5 @@
 """Vietnamese line OCR using the pinned PaddleOCR 3.x prediction contract."""
 import math
-import numpy as np
 
 DEFAULT_DETECTOR = 'PP-OCRv5_mobile_det'
 DEFAULT_RECOGNIZER = 'PP-OCRv6_small_rec'
@@ -8,6 +7,7 @@ DEFAULT_RECOGNIZER = 'PP-OCRv6_small_rec'
 
 def parse_prediction(predictions):
     """Reject broken APIs rather than silently converting failures to blank pages."""
+    import numpy as np
     predictions = list(predictions)
     if len(predictions) != 1:
         raise ValueError(f'Expected one OCR page, got {len(predictions)}')
@@ -62,6 +62,7 @@ class VietnameseOCREngine:
         )
 
     def recognize_image(self, image):
+        import numpy as np
         # Paddle's ndarray input is BGR, whereas PIL is RGB.
         bgr = np.asarray(image.convert('RGB'))[:, :, ::-1].copy()
         return parse_prediction(self.ocr.predict(bgr))

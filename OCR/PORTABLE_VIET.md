@@ -1,5 +1,29 @@
 # OCR tiếng Việt trên Colab / Kaggle
 
+## Một luồng cho PDF text, scan và PDF trộn
+
+Giữ `INPUT_MODE="auto"` (mặc định): hệ thống kiểm tra **từng trang**, lấy text trực
+tiếp nếu lớp text dùng được; trang scan, chỉ có số trang/URL, ký tự lỗi hoặc thiếu
+mapping được chuyển OCR. Ghép kết quả theo số trang gốc vào cùng `viet.txt`.
+Ảnh PNG/JPG/TIFF luôn đi qua OCR. Không phải tách tài liệu hoặc chạy hai notebook.
+
+Có thể dùng [notebook Crawl PDF](https://colab.research.google.com/github/caoban123/Tool-Annotation-Sinonom/blob/main/Crawl/notebooks/01_Crawl_Text.ipynb)
+hoặc notebook Việt bên dưới: cả hai dùng chung mã xử lý và định dạng đầu ra.
+Cell 3 chỉ cài thư viện PDF trước, đếm trang cần OCR, rồi mới cài Paddle khi cần.
+PDF text thuần không tải model và không kiểm tra GPU. Vẫn cần Internet lần đầu để
+cài Python/thư viện. Không tự sửa chính tả hay xóa dòng lặp của lớp text.
+
+- `INPUT_MODE="ocr"`: nhận dạng lại mọi trang đã chọn.
+- `INPUT_MODE="text"`: chỉ lấy lớp text; trang không có text báo lỗi và xuất partial.
+- `FORCE_OCR_PAGES=[3, 7]`: ép OCR các trang gốc 3, 7; các trang khác vẫn tự chọn.
+
+Kiểm tra dựa trên Unicode, ký tự bất thường, lặp glyph và ảnh lớn với ít text.
+Không thể chứng minh nội dung đúng nghĩa hoặc phát hiện hết lỗi dấu. Trang có ảnh
+scan lớn và lớp text được gắn cảnh báo `image_backed_text_layer` để đối chiếu lớp OCR
+cũ; không mặc định xóa lớp text này. Nếu đọc thử thấy sai, dùng tùy chọn ép OCR.
+Trang bìa ngắn có chữ hợp lệ và không có ảnh lớn vẫn được trích xuất trực tiếp.
+PDF nhiều cột/bảng vẫn cần kiểm tra thứ tự đọc.
+
 [Mở notebook trên Colab](https://colab.research.google.com/github/caoban123/Tool-Annotation-Sinonom/blob/main/OCR/notebooks/02_OCR_Viet.ipynb).
 Kaggle: upload `OCR/notebooks/02_OCR_Viet.ipynb`, bật Internet và GPU.
 
@@ -38,7 +62,9 @@ ZIP chứa:
 - `viet.txt`: văn bản UTF-8 khi xử lý đủ các trang đã chọn.
 - `viet.partial.txt`: thay cho `viet.txt` khi có trang lỗi; không dùng như bản đầy đủ.
 - `viet_metadata.json`: SHA256 tài liệu, cấu hình, thiết bị/model, số trang gốc,
-  nội dung và polygon/bbox/điểm từng dòng, cờ kiểm tra và thời gian.
+  `method`, `routing_reason`, `text_quality`, nội dung và polygon/bbox/điểm từng dòng
+  OCR, cờ kiểm tra và thời gian. Trang text trực tiếp không tạo tọa độ/điểm OCR giả.
+  `method_counts` tổng hợp số trang theo cách xử lý, gồm cả trang lỗi của cách đó.
 - `error_report.json`: trang lỗi, lý do, danh sách trang cần kiểm tra.
 - `progress.json` và `checkpoints/`: tiến độ và cache trang thành công.
 
@@ -60,13 +86,16 @@ Lỗi cài đặt/nạp model dừng ngay để sửa môi trường. Mỗi tran
 không giữ toàn bộ sách trong RAM. Trước khi thay một bản OCR đang dùng, đối chiếu
 10–20 trang thật về dấu, mất dòng, thứ tự đọc và tốc độ.
 
+Cache phân biệt chế độ tự chọn/ép text/ép OCR và phiên bản phân loại trang.
+Ép OCR riêng một trang không làm mất cache các trang khác.
+
 Nguồn API: [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR),
 [PP-OCRv6](https://www.paddleocr.ai/latest/en/version3.x/algorithm/PP-OCRv6/PP-OCRv6.html),
 [cài Paddle 3.2](https://github.com/PaddlePaddle/docs/blob/release/3.2/docs/install/pip/linux-pip_en.md).
 
 Tạo lại notebook sau khi sửa mã: `python scripts/build_viet_notebook.py`.
 
-## Kiểm chứng cục bộ ngày 05/11/2026
+## Kiểm chứng cục bộ ngày 05/11/2026 — luồng OCR ban đầu
 
 - 33 bài kiểm tra qua: API/thiết bị/BGR, giữ dấu và dòng lặp, số trang gốc,
   đổi tài liệu/cấu hình, cache hỏng, partial/ZIP, timeout tiến trình thật,
@@ -82,3 +111,15 @@ Tạo lại notebook sau khi sửa mã: `python scripts/build_viet_notebook.py`.
 - Đối chiếu ảnh gốc thấy vẫn có sai/mất ký tự có dấu, kể cả dòng có confidence cao.
   Chưa có bộ nhãn chuẩn để công bố CER/WER. Chưa chạy inference GPU trên Colab/Kaggle
   và chưa kiểm chứng cài mới Python 3.11 trên hai nền tảng đó.
+
+## Kiểm chứng sau khi ghép PDF text và scan
+
+- 63 bài qua, 8 bài Torch được bỏ qua và 2 bài Semantic ngoài phạm vi không chạy.
+  Bao gồm PDF trộn, giữ thứ tự/số trang gốc, Unicode tiếng Việt và ngoài BMP,
+  trang scan có header, cảnh báo lớp OCR cũ, lỗi scan không chặn trang text sau,
+  chỉ ép OCR trang được chọn, cache và smoke của cả hai notebook.
+- Đã chạy model CPU thật trên PDF thử nghiệm ba trang text → scan → text:
+  chỉ trang giữa nạp OCR, xuất chung ZIP; chạy lại lấy đủ 3/3 trang từ cache.
+- Đã kiểm tra các PDF Việt trong tư liệu: scan không có text và scan chỉ có URL
+  được chuyển OCR; lớp OCR cũ đủ chữ được lấy trực tiếp kèm cảnh báo để đối chiếu.
+  Bộ kiểm tra tự động không xác nhận nội dung đúng nghĩa hay hết lỗi dấu.

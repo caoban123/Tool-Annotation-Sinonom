@@ -28,3 +28,7 @@ Mở `notebooks/02_OCR_Viet.ipynb`, điền `INPUT_PATH` rồi Run all. Notebook
 Python 3.11 và môi trường Paddle riêng; chọn GPU hoặc CPU ở cell 1. Không cần làm
 bước cài đặt chung ở trên. Có tiến độ ở cell 5, ZIP ở cell 6 và chạy tiếp từ cache.
 Xem cấu hình tốc độ/chất lượng và cách đọc kết quả thiếu trang tại [PORTABLE_VIET.md](PORTABLE_VIET.md).
+
+Mặc định `INPUT_MODE="auto"`: PDF có lớp text dùng được sẽ lấy trực tiếp; chỉ OCR
+trang scan/text lỗi và ghép theo thứ tự. Notebook Crawl PDF dùng cùng luồng này,
+không cần chạy hai notebook cho cùng tài liệu. PDF text thuần không cần Paddle/GPU.

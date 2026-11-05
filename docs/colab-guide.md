@@ -57,6 +57,12 @@ Lỗi trang được báo rõ và xuất `viet.partial.txt` thay cho bản đầ
 tiếp tục từ checkpoint; dùng thư mục Drive đã mount để giữ checkpoint qua các phiên.
 Xem [hướng dẫn OCR Việt](../OCR/PORTABLE_VIET.md).
 
+`Crawl/notebooks/01_Crawl_Text.ipynb` cũng dùng luồng PDF Việt này. Giữ
+`INPUT_MODE="auto"` để tự chọn trích xuất text/OCR theo từng trang, không tách file.
+Cell 3 đếm các loại trang và chỉ cài OCR khi cần; PDF text thuần không cần GPU.
+Metadata ghi rõ phương pháp từng trang. `FORCE_OCR_PAGES` dùng khi lớp text cũ sai;
+kiểm tra tự động không thay thế đối chiếu nội dung với scan.
+
 ## 2. Hướng Dẫn Chạy Gợi Ý Dóng Hàng Semantic Alignment Trên Colab
 1. Trong Web Studio trên máy cá nhân, vào Workspace $\rightarrow$ bấm **"Gợi ý AI"** $\rightarrow$ nhấp vào link tải **`segments.jsonl`**.
 2. Mở notebook `Web/notebooks/01_Semantic_Alignment.ipynb` trên Google Colab (chế độ T4 GPU).

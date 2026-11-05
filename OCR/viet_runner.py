@@ -11,6 +11,7 @@ import zipfile
 from PIL import Image, ImageOps
 from OCR.utils.notebook_process import emit_progress
 from OCR.utils.render_pdf import render_pdf_to_images
+from Crawl.extractors.pdf_pages import route_page, ROUTING_VERSION
 
 
 def digest_file(path):
@@ -123,6 +124,14 @@ def run(config, engine=None):
     end = count if end is None else end
     if type(start) is not int or type(end) is not int or not 1 <= start <= end <= count:
         raise ValueError(f'Invalid page range {start}..{end}; document has {count} pages')
+    mode = config.get('input_mode', 'auto')
+    forced = config.get('force_ocr_pages', [])
+    if mode not in ('auto', 'ocr', 'text'):
+        raise ValueError('input_mode must be auto, ocr or text')
+    if not isinstance(forced, list) or any(type(n) is not int or not 1 <= n <= count for n in forced):
+        raise ValueError('force_ocr_pages must contain original page numbers')
+    if mode == 'text' and path.suffix.lower() != '.pdf':
+        raise ValueError('Text extraction mode requires PDF input')
     for key, default in (('render_scale', 2), ('page_timeout', 120), ('model_timeout', 600),
                          ('rec_batch_size', 16), ('det_limit_side_len', 1280)):
         value = config.get(key, default)
@@ -141,6 +150,7 @@ def run(config, engine=None):
     identity = {key: settings[key] for key in ('detector', 'recognizer', 'render_scale',
                 'rec_batch_size', 'det_limit_side_len', 'use_textline_orientation', 'device')}
     identity.update(pipeline_version=1, paddleocr='3.7.0', paddlex='3.7.2', paddle='3.2.2')
+    identity.update(routing_version=ROUTING_VERSION, input_mode=mode)
     signature = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     output = Path(config['output_dir']).resolve()
     cache_dir = Path(config.get('checkpoint_dir') or output / 'checkpoints').resolve()
@@ -160,10 +170,14 @@ def run(config, engine=None):
                       error_regions=len(errors), **values)
 
     report('start')
+    document = None
     try:
+        if path.suffix.lower() == '.pdf' and mode != 'ocr':
+            import pypdfium2 as pdfium
+            document = pdfium.PdfDocument(str(path))
         for number in range(start, end + 1):
             report('page_start', page=number, region=None)
-            key = hashlib.sha256(f'{digest}:{signature}:{number}'.encode()).hexdigest()
+            key = hashlib.sha256(f'{digest}:{signature}:{number}:{number in forced}'.encode()).hexdigest()
             checkpoint = cache_dir / f'{key}.json'
             page = None
             if checkpoint.is_file() and not config.get('force_reprocess', False):
@@ -178,19 +192,31 @@ def run(config, engine=None):
                 except (ValueError, KeyError, TypeError):
                     pass
             if page is None:
+                route = route_page(path, number, mode, forced, document)
                 # Initialization failures are fatal configuration errors, not blank pages.
-                if engine is None:
+                if route['method'] == 'ocr' and engine is None:
                     report('model_loading', page=number)
                     engine = WorkerEngine(settings)
-                engine_info = engine.info
                 began = time.monotonic()
                 image = None
                 try:
-                    image = load_page(path, number, settings['render_scale'])
-                    boxes = engine.recognize_image(image)
-                    page = dict(page_number=number, text='\n'.join(b['text'] for b in boxes),
+                    if route['method'] == 'pdf_text':
+                        if not route['text'].strip():
+                            raise ValueError('No selectable text; use auto or ocr mode')
+                        boxes, text = [], route['text']
+                        page_engine = dict(engine_type='PDFiumText', model_name=None, is_mock=False)
+                    else:
+                        image = load_page(path, number, settings['render_scale'])
+                        boxes = engine.recognize_image(image)
+                        text = '\n'.join(b['text'] for b in boxes)
+                        page_engine = engine.info
+                    page = dict(page_number=number, text=text,
                                 boxes=boxes, status='complete', source_sha256=digest,
-                                signature=signature, engine_info=engine_info, is_cached=False,
+                                signature=signature, engine_info=page_engine, is_cached=False,
+                                method=route['method'], routing_reason=route['reason'],
+                                text_quality=route['quality'],
+                                extraction_error=route.get('extraction_error'),
+                                ocr_time_sec=round(time.monotonic() - began, 3) if route['method'] == 'ocr' else 0,
                                 inference_time_sec=round(time.monotonic() - began, 3))
                     page['payload_sha256'] = checkpoint_digest(page)
                     write_json(checkpoint, page)
@@ -198,14 +224,15 @@ def run(config, engine=None):
                     traceback.print_exc()
                     errors.append(dict(page_number=number, error=str(error)))
                     page = dict(page_number=number, text='', boxes=[], status='error',
+                                method=route['method'], routing_reason=route['reason'], text_quality=route['quality'],
                                 is_cached=False, inference_time_sec=round(time.monotonic() - began, 3))
-                    if owns_engine:
+                    if owns_engine and engine is not None:
                         engine.close()
                         engine = None
                 finally:
                     if image is not None:
                         image.close()
-            else:
+            if page['status'] == 'complete':
                 engine_info = page['engine_info']
             if page['status'] == 'complete':
                 checkpoints.append(checkpoint)
@@ -213,26 +240,35 @@ def run(config, engine=None):
             page['is_blank'] = not page['text'].strip()
             page['low_confidence_lines'] = [i for i, b in enumerate(page['boxes'])
                                             if b['confidence'] < settings['review_score']]
-            page['needs_review'] = bool(page['status'] == 'error' or page['is_blank'] or page['low_confidence_lines'])
+            page['needs_review'] = bool(page['status'] == 'error' or page['is_blank'] or page['low_confidence_lines']
+                or (page['method'] == 'pdf_text' and
+                    (not page['text_quality']['usable'] or page['text_quality'].get('warnings'))))
             pages.append(page)
             (output / 'viet.partial.txt').write_bytes('\n\n'.join(p['text'] for p in pages).encode('utf-8'))
             write_json(output / 'progress.json', dict(processed=len(pages), total=total, page=number, errors=errors))
             write_json(output / 'error_report.json', dict(errors=errors))
-            print(f"Trang {number}/{end}: {'cache' if page['is_cached'] else page['status']} | {len(page['text'])} ký tự", flush=True)
+            print(f"Trang {number}/{end}: {page['method']} | {'cache' if page['is_cached'] else page['status']} | {len(page['text'])} ký tự", flush=True)
             report('page_done', page=number)
             if errors and not config.get('continue_on_error', True):
                 raise RuntimeError(errors[-1]['error'])
     finally:
         if owns_engine and engine is not None:
             engine.close()
+        if document is not None:
+            document.close()
     report('export')
     complete = not errors
     text_file = 'viet.txt' if complete else 'viet.partial.txt'
     result = dict(complete=complete, needs_review=any(p['needs_review'] for p in pages),
+                  method_counts={method: sum(p['method'] == method for p in pages) for method in ('pdf_text', 'ocr')},
                   source_file=str(path), source_sha256=digest, config=settings,
                   engine_info=engine_info, total_pages=len(pages), start_page=start, end_page=end,
                   pages=pages, errors=errors, text_file=text_file,
                   full_text='\n\n'.join(p['text'] for p in pages))
+    engines = {json.dumps(p['engine_info'], sort_keys=True) for p in pages if p['status'] == 'complete'}
+    if len(engines) > 1:
+        result['engine_info'] = dict(engine_type='HybridPDF', is_mock=False,
+                                    engines=[json.loads(value) for value in sorted(engines)])
     (output / text_file).write_bytes(result['full_text'].encode('utf-8'))
     write_json(output / 'viet_metadata.json', result)
     write_json(output / 'error_report.json', dict(complete=complete, errors=errors,
