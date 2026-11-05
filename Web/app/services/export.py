@@ -3,6 +3,8 @@ import json
 import csv
 import zipfile
 import tempfile
+import re
+import hashlib
 import openpyxl
 from pathlib import Path
 from typing import List, Tuple, Dict, Any
@@ -32,6 +34,7 @@ def get_confirmed_pairs(db: Session, project_id: str) -> List[Tuple[str, str, st
     ).all()
 
     pairs = []
+    seen = set()
     for align in alignments:
         members = db.query(AlignmentMember, Segment).join(Segment).filter(
             AlignmentMember.alignment_id == align.id
@@ -40,8 +43,17 @@ def get_confirmed_pairs(db: Session, project_id: str) -> List[Tuple[str, str, st
         han_segs = [s for m, s in members if m.side == "han"]
         viet_segs = [s for m, s in members if m.side == "viet"]
 
-        if not han_segs or not viet_segs:
-            continue
+        from .alignment import validate_contiguous_segments, infer_alignment_type
+        if not han_segs or not viet_segs or any(not s.active or s.project_id != project_id or s.language != m.side for m, s in members):
+            raise ValueError('Cặp xác nhận thiếu phân đoạn hoặc tham chiếu nguồn không còn hợp lệ: ' + align.id)
+        validate_contiguous_segments(han_segs)
+        validate_contiguous_segments(viet_segs)
+        ids = [s.id for _, s in members]
+        if len(ids) != len(set(ids)) or seen.intersection(ids):
+            raise ValueError('Phân đoạn được xác nhận trùng: ' + align.id)
+        if infer_alignment_type(len(han_segs), len(viet_segs)) != align.alignment_type:
+            raise ValueError('Kiểu dóng hàng không khớp số phân đoạn: ' + align.id)
+        seen.update(ids)
 
         min_han_order = min(s.order_index for s in han_segs)
 
@@ -49,6 +61,8 @@ def get_confirmed_pairs(db: Session, project_id: str) -> List[Tuple[str, str, st
         # For Han, classical text does not require space between sentences, but single space is acceptable if distinct
         han_text = sanitize_text(" ".join(s.clean_text for s in han_segs))
         viet_text = sanitize_text(" ".join(s.clean_text for s in viet_segs))
+        if not han_text or not viet_text:
+            raise ValueError('Cặp xác nhận có một vế rỗng: ' + align.id)
 
         pairs.append((min_han_order, align.id, han_text, viet_text))
 
@@ -151,21 +165,22 @@ def build_delivery_zip(db: Session, project_id: str, out_zip_path: Path) -> Dict
     if not project:
         raise ValueError(f"Không tìm thấy dự án {project_id}")
 
-    ma_prefix = f"{project.ma_de_tai}_{project.ma_tac_pham}"
+    safe_work = re.sub(r'[^\w.-]+', '_', project.ma_tac_pham)
+    ma_prefix = re.sub(r'[^\w.-]+', '_', f"{project.ma_de_tai}_{project.ma_tac_pham}")
     pairs = get_confirmed_pairs(db, project_id)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
-        tsv_file = tmp / f"{project.ma_tac_pham}_parallel.tsv"
-        xlsx_file = tmp / f"{project.ma_tac_pham}_parallel.xlsx"
+        tsv_file = tmp / f"{safe_work}_parallel.tsv"
+        xlsx_file = tmp / f"{safe_work}_parallel.xlsx"
 
         generate_tsv(pairs, tsv_file)
         generate_xlsx(pairs, xlsx_file)
         verify_export_parity(tsv_file, xlsx_file)
 
         # Get Clean Documents
-        han_doc = db.query(Document).filter(Document.project_id == project_id, Document.language == "han").first()
-        viet_doc = db.query(Document).filter(Document.project_id == project_id, Document.language == "viet").first()
+        han_doc = db.query(Document).filter(Document.project_id == project_id, Document.active == True, Document.language == "han").first()
+        viet_doc = db.query(Document).filter(Document.project_id == project_id, Document.active == True, Document.language == "viet").first()
 
         han_clean_path = tmp / "han.txt"
         viet_clean_path = tmp / "viet.txt"
@@ -191,16 +206,21 @@ def build_delivery_zip(db: Session, project_id: str, out_zip_path: Path) -> Dict
             for s in viet_segs:
                 f.write(s.clean_text + "\n")
 
-        with open(han_raw_path, "w", encoding="utf-8", newline="\n") as f:
-            for s in han_segs:
-                f.write(s.raw_text + "\n")
-
-        with open(viet_raw_path, "w", encoding="utf-8", newline="\n") as f:
-            for s in viet_segs:
-                f.write(s.raw_text + "\n")
+        from .documents import raw_snapshot
+        missing_raw = []
+        for language, doc, path in [('han', han_doc, han_raw_path), ('viet', viet_doc, viet_raw_path)]:
+            data = raw_snapshot(doc)
+            if data is None:
+                missing_raw.append(language)
+            else:
+                path.write_bytes(data)
 
         # Reports
         stats = get_project_statistics(db, project_id)
+        from .quality import delivery_checklist
+        checklist = delivery_checklist(db, project_id)
+        checklist_file = tmp / 'checklist.json'
+        checklist_file.write_text(json.dumps(checklist, ensure_ascii=False, indent=2), encoding='utf-8')
         stats_file = tmp / "statistics.json"
         with open(stats_file, "w", encoding="utf-8") as f:
             json.dump(stats, f, ensure_ascii=False, indent=2)
@@ -212,6 +232,7 @@ def build_delivery_zip(db: Session, project_id: str, out_zip_path: Path) -> Dict
             "ma_tac_pham": project.ma_tac_pham,
             "han_document": json.loads(han_doc.provenance) if han_doc and han_doc.provenance else {},
             "viet_document": json.loads(viet_doc.provenance) if viet_doc and viet_doc.provenance else {},
+            'missing_raw_snapshots': missing_raw,
         }
         with open(provenance_file, "w", encoding="utf-8") as f:
             json.dump(prov_data, f, ensure_ascii=False, indent=2)
@@ -221,9 +242,16 @@ def build_delivery_zip(db: Session, project_id: str, out_zip_path: Path) -> Dict
         qa_file = tmp / "qa_report.csv"
         with open(qa_file, "w", encoding="utf-8", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(["id", "code", "severity", "status", "alignment_id", "segment_id", "comment"])
+            writer.writerow(["id", "code", "severity", "status", "alignment_id", "segment_id", "comment", "origin"])
             for q in qa_issues:
-                writer.writerow([q.id, q.code, q.severity, q.status, q.alignment_id or "", q.segment_id or "", q.comment])
+                writer.writerow([q.id, q.code, q.severity, q.status, q.alignment_id or "", q.segment_id or "", q.comment, q.origin])
+        from ..models import QualityReview
+        from .quality import valid_reviews
+        current_reviews = {r.id for r in valid_reviews(db, project_id)}
+        reviews_file = tmp / 'sample_reviews.json'
+        reviews_file.write_text(json.dumps([dict(alignment_id=r.alignment_id, outcome=r.outcome,
+            error_codes=json.loads(r.error_codes), reviewer=r.reviewer, note=r.note, current=r.id in current_reviews)
+            for r in db.query(QualityReview).filter_by(project_id=project_id).all()], ensure_ascii=False, indent=2), encoding='utf-8')
 
         # Manifest
         manifest = {
@@ -232,11 +260,12 @@ def build_delivery_zip(db: Session, project_id: str, out_zip_path: Path) -> Dict
             "ma_tac_pham": project.ma_tac_pham,
             "scope": project.scope,
             "confirmed_pairs_count": len(pairs),
+            'delivery_ready': checklist['ready'], 'missing_raw_snapshots': missing_raw,
             "unassigned_han_count": stats["unassigned_han"],
             "unassigned_viet_count": stats["unassigned_viet"],
             "exported_files": [
-                f"{ma_prefix}/04_dong_hang/{project.ma_tac_pham}_parallel.tsv",
-                f"{ma_prefix}/04_dong_hang/{project.ma_tac_pham}_parallel.xlsx",
+                f"{ma_prefix}/04_dong_hang/{safe_work}_parallel.tsv",
+                f"{ma_prefix}/04_dong_hang/{safe_work}_parallel.xlsx",
                 f"{ma_prefix}/03_text_sach/han.txt",
                 f"{ma_prefix}/03_text_sach/viet.txt",
                 f"{ma_prefix}/reports/statistics.json",
@@ -251,15 +280,27 @@ def build_delivery_zip(db: Session, project_id: str, out_zip_path: Path) -> Dict
         # Build ZIP archive
         out_zip_path.parent.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(out_zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-            z.write(tsv_file, f"{ma_prefix}/04_dong_hang/{project.ma_tac_pham}_parallel.tsv")
-            z.write(xlsx_file, f"{ma_prefix}/04_dong_hang/{project.ma_tac_pham}_parallel.xlsx")
+            z.write(tsv_file, f"{ma_prefix}/04_dong_hang/{safe_work}_parallel.tsv")
+            z.write(xlsx_file, f"{ma_prefix}/04_dong_hang/{safe_work}_parallel.xlsx")
             z.write(han_clean_path, f"{ma_prefix}/03_text_sach/han.txt")
             z.write(viet_clean_path, f"{ma_prefix}/03_text_sach/viet.txt")
-            z.write(han_raw_path, f"{ma_prefix}/02_ocr_tho/han/han_tho.txt")
-            z.write(viet_raw_path, f"{ma_prefix}/02_ocr_tho/viet/viet_tho.txt")
+            if han_raw_path.exists():
+                z.write(han_raw_path, f"{ma_prefix}/02_ocr_tho/han/han_tho.txt")
+            if viet_raw_path.exists():
+                z.write(viet_raw_path, f"{ma_prefix}/02_ocr_tho/viet/viet_tho.txt")
             z.write(stats_file, f"{ma_prefix}/reports/statistics.json")
             z.write(qa_file, f"{ma_prefix}/reports/qa_report.csv")
             z.write(provenance_file, f"{ma_prefix}/reports/provenance.json")
+            z.write(checklist_file, f'{ma_prefix}/reports/checklist.json')
+            z.write(reviews_file, f'{ma_prefix}/reports/sample_reviews.json')
+            z.writestr(f'{ma_prefix}/01_nguon/inventory.json', json.dumps(prov_data, ensure_ascii=False, indent=2))
+            for language, doc in [('han', han_doc), ('viet', viet_doc)]:
+                if doc and doc.source_bytes is not None and hashlib.sha256(doc.source_bytes).hexdigest() == doc.source_sha256:
+                    provenance = json.loads(doc.provenance or '{}')
+                    filename = re.sub(r'[^\w. -]+', '_', provenance.get('source_upload_name', 'source'))
+                    z.writestr(f'{ma_prefix}/01_nguon/{language}/{filename}', doc.source_bytes)
+            manifest['exported_files'] = z.namelist() + [f'{ma_prefix}/task_manifest.json']
+            manifest_file.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
             z.write(manifest_file, f"{ma_prefix}/task_manifest.json")
 
     return {

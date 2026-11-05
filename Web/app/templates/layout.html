@@ -4,34 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Han–Viet Alignment Studio{% endblock %}</title>
-  <!-- Google Fonts: Inter & Noto Serif TC/SC for authentic Sino-Vietnamese / Classical CJK -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Serif+SC:wght@400;600;700&family=Noto+Serif+TC:wght@400;600;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
-
-  <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            brand: { 50: '#f0fdf4', 500: '#16a34a', 600: '#15803d', 700: '#166534' },
-            han: { 50: '#f0f7ff', 100: '#e0effe', 200: '#bae0fd', 500: '#0284c7', 600: '#0369a1', 700: '#075985', 900: '#0c4a6e' },
-            viet: { 50: '#fff1f2', 100: '#ffe4e6', 200: '#fecdd3', 500: '#e11d48', 600: '#be123c', 700: '#9f1239', 900: '#881337' },
-          },
-          fontFamily: {
-            cjk: ['"Noto Serif TC"', '"Noto Serif SC"', '"Source Han Serif"', '"Songti SC"', 'SimSun', 'serif'],
-            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
-          },
-          boxShadow: {
-            'subtle': '0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03)',
-            'card-hover': '0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04)',
-          }
-        }
-      }
-    }
-  </script>
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/ui.css">
+  <script src="/static/common.js"></script>
   <style>
     .font-cjk { font-family: "Noto Serif TC", "Noto Serif SC", "Source Han Serif", "Songti SC", SimSun, serif; }
     /* Sleek Custom Scrollbar */
@@ -87,6 +62,7 @@
             <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
             <span>Thô & Sạch</span>
           </a>
+          <a href="/sources/{{ project.id }}" class="px-3 py-1.5 rounded-lg text-slate-600">Nguồn &amp; nhiệm vụ</a>
           <a href="/workspace/{{ project.id }}" class="bg-emerald-600 text-white px-3.5 py-1.5 rounded-lg font-semibold shadow-xs hover:bg-emerald-700 transition flex items-center space-x-1.5">
             <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg>
             <span>Dóng Hàng</span>
@@ -134,7 +110,9 @@
       };
 
       toast.className = `pointer-events-auto flex items-center space-x-2.5 px-4 py-2.5 rounded-xl border shadow-lg text-xs font-medium animate-toast ${bgMap[type] || bgMap.info}`;
-      toast.innerHTML = `${iconMap[type] || iconMap.info}<span>${message}</span>`;
+      toast.innerHTML = iconMap[type] || iconMap.info;
+      const messageElement = document.createElement('span'); messageElement.textContent = message; toast.append(messageElement);
+      toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
       container.appendChild(toast);
 
       setTimeout(() => {

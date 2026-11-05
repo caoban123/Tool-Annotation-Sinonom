@@ -27,3 +27,40 @@ python3 -m venv .venv
 - Trên Linux/macOS: Chạy `bash Web/run.sh`
 
 Mở trình duyệt tại: **http://127.0.0.1:8000**
+
+## Quy trình mới
+
+- **Nguồn & nhiệm vụ**: kiểm kê nguồn Hán/Việt, tải tệp gốc, gắn metadata OCR khớp
+  TXT trước biên tập, thêm người/phạm vi và mục tiêu cặp. Chọn nhiệm vụ khi dóng hàng.
+- **QA & Lỗi**: quét cảnh báo tự động; duyệt/từ chối cặp chờ; kiểm tra mẫu đúng/sai
+  và loại lỗi. Đánh giá thủ công không bị quét xóa; sửa nội dung làm mẫu cũ cần kiểm tra lại.
+- **Thô & Sạch**: bản thô lấy từ snapshot gốc, không dựng từ phân đoạn đã sửa.
+- **Xuất & Sao lưu**: checklist thể hiện phần còn thiếu. ZIP thông thường vẫn xuất
+  bản đang làm; liên kết xuất có điều kiện yêu cầu checklist đạt. Cả hai có báo cáo.
+- **Workspace**: chế độ gọn/cỡ chữ lưu theo trình duyệt, QA nhảy đúng câu/cặp,
+  Enter/Space chọn thẻ, modal hỗ trợ Tab/Shift+Tab/Esc và trả focus khi đóng.
+
+### Database và migration
+
+Khi khởi động, ứng dụng tự thêm cột/bảng mới và tạo bản sao SQLite có đuôi
+`.before-web-v2.bak` trước khi nâng cấp DB cũ. Không xóa dự án/phân đoạn.
+Snapshot nhập mới và nguồn upload nằm trong DB, đi cùng backup. Với tài liệu cũ,
+chỉ đọc lại snapshot trên đĩa khi còn tệp và khớp hash; nếu thiếu sẽ báo rõ.
+QA cũ được giữ ở nguồn `legacy`, không suy diễn ghi chú CHECKED thành đánh giá mới.
+`DATABASE_URL` có thể trỏ tới DB riêng để kiểm thử; không dùng DB đang làm việc cho tests.
+
+### Offline và xây dựng CSS
+
+CSS đã biên dịch và font đi kèm trong `app/static`; chạy Web không cần Node hoặc
+Internet sau khi cài dependencies Python. Inter/Noto Serif TC được phân phối theo
+OFL; giấy phép nằm tại `app/static/fonts/*-OFL.txt`. Font dự phòng dùng font hệ thống.
+Chỉ nhà phát triển cần Node khi thay class Tailwind:
+
+```bash
+cd Web
+npm ci --ignore-scripts
+npm run build:css
+```
+
+Hướng dẫn người dùng: [docs/user-guide.md](../docs/user-guide.md).
+Kết quả triển khai: [docs/web-plan-validation.md](../docs/web-plan-validation.md).

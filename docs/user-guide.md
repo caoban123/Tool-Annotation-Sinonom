@@ -43,5 +43,51 @@ Mở trình duyệt web truy cập vào: **http://127.0.0.1:8000**
 ### Bước 4: Xuất kết quả nghiệm thu & Sao lưu
 1. Bấm vào tab **"Xuất & Sao lưu"**.
 2. Có thể tải riêng file **TSV Song Ngữ** hoặc **Excel XLSX** để kiểm tra.
-3. Bấm **"Tải Gói Giao Nộp (ZIP)"** để nhận file zip nén chuẩn đóng gói toàn bộ dữ liệu. Gửi file zip này cho trưởng nhóm để tổng hợp.
+3. Xem checklist trước khi bấm **"Tải Gói Giao Nộp (ZIP)"**. ZIP thông thường là bản đang làm,
+   có thể còn dữ liệu thiếu; báo cáo ghi rõ trạng thái. Liên kết xuất có điều kiện chỉ cho tải khi checklist đạt.
 4. Nhấn **"Tạo Bản Sao Lưu Ngay"** bất kỳ lúc nào để lưu trữ trạng thái cơ sở dữ liệu SQLite an toàn.
+
+## 3. Nguồn, số trang và nhiệm vụ
+
+Vào **Nguồn & nhiệm vụ**, lưu thông tin riêng cho Hán/Việt: tên, URL/tệp, định dạng,
+số trang, phạm vi và công cụ. Có thể upload tệp nguồn để đưa thật vào ZIP; nhập URL
+chỉ lưu tham chiếu. Tệp nguồn/TXT và phiên bản của chúng được lưu cùng DB.
+
+Nếu có `han_metadata.json` / `viet_metadata.json`, chọn ở form tương ứng ngay sau
+import, trước sửa/tách/gộp. Metadata phải khớp TXT, có `full_text` và `pages` với
+`page_number`, `text`. TXT không có metadata sẽ hiện **Chưa rõ trang**. Tách giữ
+tham chiếu trang; gộp giữ mọi trang liên quan. **Mở nguồn** trên thẻ mở tệp/URL đã lưu.
+
+Mục tiêu mặc định 2.000 cặp có thể đổi khi tạo dự án hoặc sửa nhiệm vụ. Thêm nhiệm vụ
+cho từng người/phạm vi, chọn nhiệm vụ ở Workspace trước khi xác nhận cặp. Checklist
+kiểm tra cả tổng và mục tiêu riêng, không coi đủ tổng là mọi thành viên đều đạt.
+
+## 4. Kiểm tra mẫu và gợi ý AI
+
+Trong QA, đánh giá từng cặp xác nhận **Đúng** hoặc **Có lỗi**, chọn `OMISSION`
+(thiếu ý), `ADDITION` (thêm ý), `MISSING` (thiếu đối ứng), nhập ghi chú/người kiểm tra
+và lưu. Cặp có nhiều loại lỗi chỉ đếm một lần. Sửa nội dung làm đánh giá cũ hết hiệu
+lực; cần duyệt lại cặp và đánh giá lại. Quét tự động không xóa lỗi người dùng.
+Chưa có mẫu sẽ hiện chưa đánh giá, không hiển thị tỷ lệ 0% giả.
+
+Gợi ý AI cần xuất manifest mới từ Web, dùng notebook hiện có rồi nhập JSON về.
+File sai schema/project/hash/revision sẽ bị từ chối. Gợi ý chỉ là gợi ý; phải duyệt
+mới xuất. Nếu một phân đoạn đã được xác nhận ở cặp khác, hệ thống chặn duyệt trùng.
+Danh sách **Cặp và gợi ý chờ duyệt** trong QA cho phép loại bỏ gợi ý trùng hoặc cặp
+không còn hợp lệ sau thay nguồn. Liên kết QA nhảy đến đúng câu/cặp trong Workspace.
+
+## 5. Đọc gói ZIP
+
+- `01_nguon/inventory.json`: kiểm kê nguồn; tệp gốc đã upload nằm theo Hán/Việt.
+- `02_ocr_tho`: byte TXT nhập gốc còn khớp hash; không dùng nội dung đã sửa thay thế.
+- `03_text_sach`: text hiện tại sau biên tập.
+- `04_dong_hang`: cặp confirmed có cấu trúc hợp lệ, TSV/XLSX được kiểm tra parity.
+- `reports`: thống kê, QA (kèm nguồn vấn đề), đánh giá mẫu, checklist và provenance.
+- `task_manifest.json`: danh sách tệp thực sự có trong ZIP, trạng thái và phần thiếu.
+
+Nếu không còn snapshot gốc cũ, Web báo thiếu thay vì tự phục dựng. Những vấn đề QA
+từ dữ liệu cũ có nhãn `legacy` cần đối chiếu thủ công. Checklist đạt không có nghĩa
+mọi câu đúng ngữ nghĩa; tiếp tục sửa các lỗi đã biết và kiểm tra chất lượng thực tế.
+
+Web chạy offline sau khi cài thư viện. Sau cập nhật mã, khởi động lại Web và refresh
+trình duyệt để nhận CSS/JavaScript mới. Database cũ được backup tự động trước migration.

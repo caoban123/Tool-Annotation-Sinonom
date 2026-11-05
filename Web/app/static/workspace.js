@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadWorkspaceData();
   setupKeyboardShortcuts();
   setupSearch();
+  setupWorkspaceOptions();
 });
 
 async function loadWorkspaceData() {
@@ -40,11 +41,12 @@ async function loadWorkspaceData() {
 
     const progressEl = document.getElementById('alignProgressText');
     if (progressEl) {
-      progressEl.innerText = `Đã dóng: ${alignments.length} cặp`;
+      progressEl.innerText = `Đã xác nhận: ${alignments.filter(a => a.status === "confirmed").length} cặp`;
     }
 
     renderColumns();
     updateSelectionPreview();
+    applyQaTarget();
     showSaveStatus('Đã lưu DB', 'emerald');
   } catch (err) {
     showSaveStatus('Lỗi tải', 'rose');
@@ -104,8 +106,12 @@ function clearSearch() {
 }
 
 function renderColumns() {
+  const scrolls = ['hanColumn','vietColumn'].map(id=>document.getElementById(id).scrollTop);
   renderSide('han', hanSegments, document.getElementById('hanColumn'), selectedHan);
   renderSide('viet', vietSegments, document.getElementById('vietColumn'), selectedViet);
+  ['hanColumn','vietColumn'].forEach((id,index)=>document.getElementById(id).scrollTop=scrolls[index]);
+  if(window.pendingCardFocus && !document.querySelector('[role=dialog]:not(.hidden)')){document.getElementById(window.pendingCardFocus)?.focus({preventScroll:true});window.pendingCardFocus=null;}
+
 }
 
 function renderSide(side, segments, container, selectedSet) {
@@ -156,13 +162,16 @@ function renderSide(side, segments, container, selectedSet) {
       cardClasses += 'border-slate-200 hover:border-slate-300 bg-white hover:shadow-xs p-3.5';
     }
 
-    card.className = cardClasses;
+    card.className = cardClasses + ' segment-card';
+    card.tabIndex = 0; card.setAttribute('role','group');
+    card.setAttribute('aria-label', `${side === 'han' ? 'Hán' : 'Việt'} ${seg.order_index}, Enter để chọn`);
+    card.onkeydown = event => {if(event.target===card && ['Enter',' '].includes(event.key)){event.preventDefault();handleSegmentClick(side,seg,event.shiftKey);}};
     card.id = `card_${seg.id}`;
 
     // Click handler for multi-select
     card.onclick = (e) => {
       // Ignore if clicking action buttons
-      if (e.target.closest('button')) return;
+      if (e.target.closest('button,a,input')) return;
       handleSegmentClick(side, seg, e.shiftKey);
     };
 
@@ -172,6 +181,11 @@ function renderSide(side, segments, container, selectedSet) {
       : 'bg-rose-100 text-rose-800 border-rose-200';
 
     card.innerHTML = `
+      <div class="flex flex-wrap gap-2 text-xs mb-2">
+        <a class="source-ref" href="/source/${projectId}/${side}?page=${encodeURIComponent((seg.page_ref||'').split(',')[0])}#page=${encodeURIComponent((seg.page_ref||'').split(',')[0])}" target="_blank" rel="noopener">Mở nguồn</a>
+        ${seg.alignment_status==='suggested'?`<button class="source-ref" onclick="reviewSuggestion('${seg.alignment_id}',true)">Duyệt gợi ý</button><button class="source-ref" onclick="reviewSuggestion('${seg.alignment_id}',false)">Từ chối</button>`:''}
+        ${seg.alignment_status==='needs_review'?`<button class="source-ref" onclick="reconfirmPair('${seg.alignment_id}')">Xác nhận lại</button>`:''}
+      </div>
       <!-- Top Card Header -->
       <div class="flex items-center justify-between pb-2 border-b border-slate-100/90">
         <div class="flex items-center space-x-2">
@@ -179,20 +193,20 @@ function renderSide(side, segments, container, selectedSet) {
           <span class="font-mono text-[10px] text-slate-400 tracking-tight">${seg.id.split('_').slice(-2).join('_')}</span>
         </div>
         <div class="flex items-center space-x-1.5">
-          ${seg.alignment_id ? `
+          ${seg.alignment_status === 'confirmed' ? `
             <span class="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-mono font-semibold" title="Mã dóng: ${seg.alignment_id}">✓ Đã dóng</span>
           ` : statusBadge}
         </div>
       </div>
 
       <!-- Segment Text Body -->
-      <div class="mt-2.5 ${isHan ? 'font-cjk text-[17px] leading-[1.8] text-slate-900 tracking-wide font-normal' : 'font-sans text-[14px] leading-relaxed text-slate-800 font-normal'}">
+      <div class="segment-text mt-2.5 ${isHan ? 'font-cjk text-[17px] leading-[1.8] text-slate-900 tracking-wide font-normal' : 'font-sans text-[14px] leading-relaxed text-slate-800 font-normal'}">
         ${escapeHtml(seg.clean_text)}
       </div>
 
       <!-- Card Action Footer -->
       <div class="mt-3 pt-2 flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-100/70">
-        <span class="font-medium text-[10px] text-slate-400">Trang ${seg.page_ref}</span>
+        <span class="font-medium text-[10px] text-slate-400">${seg.page_ref ? `Trang ${escapeHtml(seg.page_ref)}` : "Chưa rõ trang"}</span>
         
         <div class="flex items-center space-x-1">
           <button onclick="openEditModal('${seg.id}')" title="Sửa nội dung câu này"
@@ -390,6 +404,7 @@ async function confirmAlignment() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         project_id: projectId,
+        task_id: document.getElementById('taskSelect').value || null,
         han_segment_ids: hanIds,
         viet_segment_ids: vietIds,
         status: 'confirmed'
@@ -651,7 +666,7 @@ async function submitAiSuggestions() {
     const data = await res.json();
     document.getElementById('aiSuggestionsModal').classList.add('hidden');
     await loadWorkspaceData();
-    if (window.showToast) window.showToast(`Đã nhập thành công ${data.imported_suggestions_count} gợi ý từ model ${data.model_name}!`, 'success');
+    if (window.showToast) window.showToast(`Đã nhập ${data.imported_suggestions_count} gợi ý; từ chối ${data.rejected_suggestions_count || 0}. ${data.rejected?.map(r=>`#${r.index+1}: ${r.reason}`).join("; ") || ""}`, 'success');
   } catch (err) {
     if (window.showToast) window.showToast('Lỗi: ' + err.message, 'error');
     else alert('Lỗi: ' + err.message);
@@ -663,4 +678,24 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.innerText = text;
   return div.innerHTML;
+}
+
+let qaTargetApplied=false;
+function applyQaTarget(){
+  if(qaTargetApplied)return;
+  const query=new URLSearchParams(location.search);const segment=query.get('segment'),alignmentId=query.get('alignment');
+  if(!segment&&!alignmentId)return;qaTargetApplied=true;
+  const pair=alignments.find(a=>a.id===alignmentId);
+  const ids=segment?[segment]:pair?pair.han_segments.concat(pair.viet_segments).map(s=>s.id):[];
+  for(const id of ids){const card=document.getElementById(`card_${id}`);if(card){card.classList.add('qa-target');card.scrollIntoView({block:'center'});card.focus({preventScroll:true});}}
+  if(!ids.some(id=>document.getElementById(`card_${id}`)))showToast('Không còn phân đoạn active tại vị trí này','warning');
+}
+async function reviewSuggestion(id,accept){try{await appRequest(`/api/suggestions/${id}/${accept?'accept':'reject'}`,{method:'POST'});await loadWorkspaceData();}catch(error){showToast(error.message,'error');}}
+async function reconfirmPair(id){try{await appRequest(`/api/alignments/${id}/confirm`,{method:'POST'});await loadWorkspaceData();}catch(error){showToast(error.message,'error');}}
+async function setupWorkspaceOptions(){
+  const compact=document.getElementById('compactView'),size=document.getElementById('readingSize');
+  try{compact.checked=localStorage.getItem('compactView')==='true';size.value=localStorage.getItem('readingSize')||16;}catch{}
+  function apply(){document.getElementById('app').classList.toggle('compact',compact.checked);document.documentElement.style.setProperty('--reading-size',size.value+'px');try{localStorage.setItem('compactView',compact.checked);localStorage.setItem('readingSize',size.value);}catch{}}
+  compact.onchange=apply;size.oninput=apply;apply();
+  try{const tasks=await appRequest(`/api/projects/${projectId}/tasks`);const select=document.getElementById('taskSelect');for(const task of tasks){const option=document.createElement('option');option.value=task.id;option.textContent=task.assigned_to+' · '+task.scope;select.append(option);}}catch(error){showToast(error.message,'error');}
 }

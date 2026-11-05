@@ -1,6 +1,6 @@
 import datetime
 from sqlalchemy import (
-    Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Index, UniqueConstraint
+    Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Index, UniqueConstraint, LargeBinary
 )
 from sqlalchemy.orm import relationship
 from .db import Base
@@ -49,6 +49,10 @@ class Document(Base):
     raw_sha256 = Column(String(64), nullable=False)
     clean_sha256 = Column(String(64), nullable=False)
     provenance = Column(Text, default="{}")
+    raw_bytes = Column(LargeBinary, nullable=True)
+    source_bytes = Column(LargeBinary, nullable=True)
+    source_sha256 = Column(String(64), nullable=True)
+    active = Column(Boolean, default=True, nullable=False)
     revision = Column(Integer, default=1)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
@@ -65,7 +69,7 @@ class Segment(Base):
     order_index = Column(Integer, nullable=False)
     raw_text = Column(Text, nullable=False)
     clean_text = Column(Text, nullable=False)
-    page_ref = Column(String(64), default="1")
+    page_ref = Column(String(64), default="")
     parent_ids = Column(Text, default="[]")
     replaced_ids = Column(Text, default="[]")
     active = Column(Boolean, default=True, nullable=False)
@@ -89,6 +93,7 @@ class Alignment(Base):
     alignment_type = Column(String(16), nullable=False) # '1-1', '1-n', 'n-1', 'n-m'
     status = Column(String(32), default="confirmed", nullable=False) # 'draft', 'suggested', 'confirmed', 'needs_review', 'rejected'
     notes = Column(Text, default="")
+    suggestion_context = Column(Text, default="{}")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     revision = Column(Integer, default=1)
@@ -129,11 +134,25 @@ class QAIssue(Base):
     severity = Column(String(16), default="warning") # warning, error
     status = Column(String(16), default="open") # open, resolved, ignored
     comment = Column(Text, default="")
+    origin = Column(String(32), default="manual", nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     resolved_at = Column(DateTime, nullable=True)
 
     project = relationship("Project", back_populates="qa_issues")
     alignment = relationship("Alignment", back_populates="qa_issues")
+
+
+class QualityReview(Base):
+    __tablename__ = 'quality_reviews'
+    id = Column(String(64), primary_key=True)
+    alignment_id = Column(String(64), ForeignKey('alignments.id', ondelete='CASCADE'), unique=True, nullable=False)
+    project_id = Column(String(64), ForeignKey('projects.id', ondelete='CASCADE'), nullable=False)
+    outcome = Column(String(16), nullable=False)
+    error_codes = Column(Text, default='[]')
+    note = Column(Text, default='')
+    reviewer = Column(String(128), default='')
+    content_hash = Column(String(64), nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
 class Revision(Base):
     __tablename__ = "revisions"

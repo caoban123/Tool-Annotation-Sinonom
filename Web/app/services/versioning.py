@@ -2,6 +2,7 @@ import json
 import datetime
 from sqlalchemy.orm import Session
 from ..models import Project, Revision
+from sqlalchemy import update
 
 def record_revision(
     db: Session,
@@ -17,9 +18,12 @@ def record_revision(
     if not project:
         current_rev = 1
     else:
-        project.revision += 1
+        db.flush()
+        db.execute(update(Project).where(Project.id == project_id).values(
+            revision=Project.revision + 1, updated_at=datetime.datetime.utcnow()),
+            execution_options={'synchronize_session': False})
+        db.refresh(project)
         current_rev = project.revision
-        project.updated_at = datetime.datetime.utcnow()
 
     rev = Revision(
         project_id=project_id,

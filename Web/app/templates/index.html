@@ -127,6 +127,7 @@
         </div>
       </div>
 
+      <label class="field">Mục tiêu cặp của nhiệm vụ<input name="target_count" type="number" min="1" value="2000" required></label>
       <div class="pt-2 border-t border-slate-100">
         <label class="block text-xs font-semibold text-blue-900 mb-1">File Văn Bản Hán (han.txt)</label>
         <input type="file" id="han_file_input" accept=".txt" required class="w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
@@ -167,7 +168,8 @@ async function handleCreateProject(e) {
       ma_tac_pham: form.ma_tac_pham.value,
       name: form.name.value,
       scope: form.scope.value,
-      assigned_to: form.assigned_to.value
+      assigned_to: form.assigned_to.value,
+      target_count: Number(form.target_count.value)
     };
 
     const res = await fetch('/api/projects', {

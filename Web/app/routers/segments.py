@@ -31,8 +31,10 @@ def list_segments(
     ).all()
 
     align_map = {}
+    priority = {'confirmed': 4, 'needs_review': 3, 'suggested': 2, 'draft': 1}
     for m, a in members:
-        align_map[m.segment_id] = (a.id, a.status)
+        if a.status in priority and priority[a.status] > priority.get(align_map.get(m.segment_id, (None, ''))[1], 0):
+            align_map[m.segment_id] = (a.id, a.status)
 
     results = []
     for s in segments:

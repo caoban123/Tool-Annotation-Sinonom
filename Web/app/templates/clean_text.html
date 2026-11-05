@@ -85,6 +85,7 @@
 const projectId = "{{ project.id }}";
 let currentLang = "han";
 let segments = [];
+let originalRawText = "";
 
 document.addEventListener("DOMContentLoaded", loadData);
 
@@ -111,6 +112,8 @@ async function loadData() {
   try {
     const res = await fetch(`/api/segments?project_id=${projectId}&language=${currentLang}`);
     segments = await res.json();
+    const rawResponse = await fetch(`/api/exports/raw-text?project_id=${projectId}&language=${currentLang}`);
+    originalRawText = rawResponse.ok ? await rawResponse.text() : 'Thiếu snapshot gốc khớp hash. Không dùng bản đã biên tập thay bản thô.';
     renderComparison();
   } catch (err) {
     console.error(err);
@@ -120,22 +123,10 @@ async function loadData() {
 function renderComparison() {
   const rawBox = document.getElementById("rawContainer");
   const cleanBox = document.getElementById("cleanContainer");
-  rawBox.innerHTML = '';
+  rawBox.replaceChildren(); const snapshot = document.createElement('pre'); snapshot.textContent = originalRawText; rawBox.append(snapshot);
   cleanBox.innerHTML = '';
 
   segments.forEach((seg, idx) => {
-    // Raw card
-    const rawCard = document.createElement("div");
-    rawCard.className = "p-3.5 rounded-xl border border-slate-200 bg-white shadow-xs text-xs";
-    rawCard.innerHTML = `
-      <div class="text-[10px] text-slate-400 font-mono pb-1.5 border-b border-slate-100 flex justify-between">
-        <span class="font-bold">#${seg.order_index} (Trang ${seg.page_ref})</span>
-        <span class="px-1.5 py-0.2 bg-amber-50 text-amber-800 rounded font-bold border border-amber-200">Bản Thô</span>
-      </div>
-      <div class="mt-2.5 ${currentLang === 'han' ? 'font-cjk text-[16px] leading-relaxed text-slate-800' : 'font-sans text-sm leading-relaxed text-slate-800'}">${escapeHtml(seg.raw_text)}</div>
-    `;
-    rawBox.appendChild(rawCard);
-
     // Clean card
     const cleanCard = document.createElement("div");
     cleanCard.className = "p-3.5 rounded-xl border border-emerald-200 bg-white shadow-xs text-xs";

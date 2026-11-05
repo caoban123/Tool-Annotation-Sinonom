@@ -62,9 +62,9 @@
         <div>
           <div class="flex items-center space-x-2 text-purple-700 font-bold text-sm">
             <span class="font-mono bg-purple-100 px-1.5 py-0.5 rounded text-xs">ZIP</span>
-            <span>Gói Giao Nộp Hoàn Chỉnh</span>
+            <span>Gói Kết Quả Kèm Báo Cáo</span>
           </div>
-          <p class="text-xs text-slate-500 mt-2">Chứa đầy đủ thư mục nguồn, text sạch, song ngữ TSV/XLSX đã kiểm chứng parity và reports.</p>
+          <p class="text-xs text-slate-500 mt-2">Chứa kiểm kê nguồn, tệp nguồn đã upload (nếu có), snapshot thô còn hợp lệ, text sạch, TSV/XLSX và báo cáo. Checklist ghi rõ phần còn thiếu.</p>
         </div>
         <a href="/api/exports/zip?project_id={{ project.id }}" class="mt-4 block text-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs font-medium transition shadow-xs">
           Tải Gói Giao Nộp (ZIP)
@@ -73,6 +73,9 @@
     </div>
   </div>
 
+  <section id="deliveryChecklist" data-project-id="{{ project.id }}" class="panel" aria-live="polite">Đang kiểm tra điều kiện bàn giao…</section>
+  <p class="text-sm text-slate-600">ZIP thông thường là kết quả đang làm, vẫn tải được khi checklist chưa đạt.
+    <a class="source-ref" href="/api/exports/zip?project_id={{ project.id }}&delivery=true">Xuất với kiểm tra điều kiện bàn giao bắt buộc</a></p>
   <!-- Database Backup & Restore Section -->
   <div class="bg-white rounded-xl border border-slate-200 p-6 shadow-xs">
     <div class="flex items-center justify-between pb-4 border-b border-slate-100">
@@ -97,6 +100,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/checklist.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', loadBackups);
 

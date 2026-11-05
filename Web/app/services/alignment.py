@@ -2,8 +2,10 @@ import uuid
 import datetime
 from typing import List, Tuple
 from sqlalchemy.orm import Session
-from ..models import Alignment, AlignmentMember, Segment, Project
+from ..models import Alignment, AlignmentMember, Segment, Project, Task
 from .versioning import record_revision
+from .integrity import lock_project, source_context
+import json
 
 def infer_alignment_type(num_han: int, num_viet: int) -> str:
     """Infer alignment type from segment cardinality."""
@@ -50,6 +52,11 @@ def create_alignment(
     """
     if not han_segment_ids or not viet_segment_ids:
         raise ValueError("Không thể tạo cặp dóng hàng khi một vế rỗng (MISSING).")
+    lock_project(db, project_id)
+    if status not in ('confirmed', 'suggested', 'draft', 'needs_review', 'rejected'):
+        raise ValueError('Trạng thái dóng hàng không hợp lệ')
+    if task_id and not db.query(Task).filter_by(id=task_id, project_id=project_id).first():
+        raise ValueError('Nhiệm vụ không thuộc dự án')
 
     # Fetch Han segments
     han_segs = db.query(Segment).filter(
@@ -72,6 +79,8 @@ def create_alignment(
         raise ValueError("Một số phân đoạn Việt không hợp lệ hoặc đã bị vô hiệu hóa.")
 
     # Validate contiguity
+    if not any(s.clean_text.strip() for s in han_segs) or not any(s.clean_text.strip() for s in viet_segs):
+        raise ValueError('Không được xác nhận cặp có một vế không còn nội dung')
     validate_contiguous_segments(han_segs)
     validate_contiguous_segments(viet_segs)
 
@@ -90,6 +99,9 @@ def create_alignment(
         )
 
     alignment_type = infer_alignment_type(len(han_segs), len(viet_segs))
+    if task_id is None:
+        task = db.query(Task).filter_by(project_id=project_id).first()
+        task_id = task.id if task else None
     align_id = f"align_{uuid.uuid4().hex[:10]}"
 
     alignment = Alignment(
@@ -136,6 +148,43 @@ def create_alignment(
             "status": status
         }
     )
+    db.flush()
+    return alignment
+
+
+def confirm_alignment(db, alignment):
+    lock_project(db, alignment.project_id)
+    if alignment.status not in ('suggested', 'needs_review', 'draft'):
+        raise ValueError('Chỉ duyệt gợi ý/bản nháp hoặc cặp cần duyệt lại')
+    if alignment.status == 'suggested':
+        context = json.loads(alignment.suggestion_context or '{}')
+        if context.get('snapshot') != source_context(db, alignment.project_id)['snapshot']:
+            raise ValueError('Gợi ý cũ hoặc thiếu ngữ cảnh nguồn; hãy xuất và tạo gợi ý mới')
+    members = db.query(AlignmentMember).filter_by(alignment_id=alignment.id).all()
+    sides = {}
+    for side in ('han', 'viet'):
+        group = [m.segment for m in members if m.side == side]
+        if not group or any(not s or not s.active or s.project_id != alignment.project_id or s.language != side for s in group):
+            raise ValueError('Phân đoạn không còn active hoặc sai dự án/ngôn ngữ')
+        if len({s.id for s in group}) != len(group):
+            raise ValueError('Phân đoạn trùng trong cặp')
+        if not any(s.clean_text.strip() for s in group):
+            raise ValueError('Một vế của cặp không còn nội dung')
+        validate_contiguous_segments(group)
+        sides[side] = group
+    if any(m.side not in sides for m in members):
+        raise ValueError('Vế dóng hàng không hợp lệ')
+    ids = [m.segment_id for m in members]
+    conflict = db.query(AlignmentMember).join(Alignment).filter(
+        AlignmentMember.segment_id.in_(ids), Alignment.status == 'confirmed', Alignment.id != alignment.id).first()
+    if conflict:
+        raise ValueError('Phân đoạn đã thuộc cặp xác nhận khác; không được duyệt trùng')
+    alignment.alignment_type = infer_alignment_type(len(sides['han']), len(sides['viet']))
+    before = alignment.status
+    alignment.status = 'confirmed'
+    alignment.revision += 1
+    record_revision(db, alignment.project_id, 'accept_alignment', 'Alignment', alignment.id,
+                    before_state={'status': before}, after_state={'status': 'confirmed'})
     db.flush()
     return alignment
 

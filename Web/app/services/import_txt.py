@@ -3,7 +3,7 @@ import json
 import uuid
 import datetime
 from sqlalchemy.orm import Session
-from ..models import Document
+from ..models import Document, Segment, Alignment
 from .versioning import record_revision
 
 def compute_sha256(data: bytes) -> str:
@@ -28,9 +28,9 @@ def process_txt_bytes(
     # Check for UTF-8 BOM
     has_bom = raw_bytes.startswith(b'\xef\xbb\xbf')
     if has_bom:
-        decoded_text = raw_bytes[3:].decode('utf-8', errors='replace')
+        decoded_text = raw_bytes[3:].decode('utf-8')
     else:
-        decoded_text = raw_bytes.decode('utf-8', errors='replace')
+        decoded_text = raw_bytes.decode('utf-8')
 
     # Normalize newlines
     normalized_text = decoded_text.replace('\r\n', '\n').replace('\r', '\n')
@@ -50,22 +50,17 @@ def process_txt_bytes(
 
     doc_id = f"doc_{language}_{uuid.uuid4().hex[:8]}"
 
-    # Save raw bytes to storage directory
-    from pathlib import Path
-    storage_dir = Path(__file__).resolve().parent.parent.parent / "data" / "documents"
-    storage_dir.mkdir(parents=True, exist_ok=True)
-    raw_storage_path = storage_dir / f"{project_id}_{language}_raw.txt"
-    with open(raw_storage_path, "wb") as f:
-        f.write(raw_bytes)
-    provenance["raw_storage_path"] = str(raw_storage_path)
+    # Store the exact input bytes transactionally in the document version.
 
     # Deactivate or remove previous document for this language in project if re-importing
     old_doc = db.query(Document).filter(
         Document.project_id == project_id,
-        Document.language == language
+        Document.language == language, Document.active == True
     ).first()
     if old_doc:
-        db.delete(old_doc)
+        old_doc.active = False
+        db.query(Segment).filter_by(document_id=old_doc.id).update({'active': False})
+        db.query(Alignment).filter_by(project_id=project_id, status='confirmed').update({'status': 'needs_review'})
         db.flush()
 
     doc = Document(
@@ -76,6 +71,7 @@ def process_txt_bytes(
         raw_sha256=raw_sha,
         clean_sha256=clean_sha,
         provenance=json.dumps(provenance, ensure_ascii=False),
+        raw_bytes=raw_bytes,
         revision=1
     )
     db.add(doc)

@@ -5,6 +5,7 @@ from typing import List
 from sqlalchemy.orm import Session
 from ..models import Segment, Document, Alignment, AlignmentMember, QAIssue
 from .versioning import record_revision
+from .integrity import lock_project
 
 def split_sentences_han(text: str) -> List[str]:
     """
@@ -76,7 +77,7 @@ def segment_document(
             order_index=idx,
             raw_text=s_text,
             clean_text=s_text,
-            page_ref="1",
+            page_ref="",
             active=True,
             revision=1
         )
@@ -123,6 +124,7 @@ def edit_segment(
     new_clean_text: str
 ) -> Segment:
     """Edit clean_text of a segment and flag any affected confirmed alignments."""
+    lock_project(db, project_id)
     seg = db.query(Segment).filter(
         Segment.id == segment_id,
         Segment.project_id == project_id,
@@ -159,6 +161,7 @@ def split_segment(
     Split an existing active segment into 2 or more child segments.
     Deactivates the parent and updates affected alignments to needs_review.
     """
+    lock_project(db, project_id)
     seg = db.query(Segment).filter(
         Segment.id == segment_id,
         Segment.project_id == project_id,
@@ -227,6 +230,7 @@ def merge_segments(
     Merge multiple contiguous active segments into a single segment.
     Deactivates original segments and updates affected alignments to needs_review.
     """
+    lock_project(db, project_id)
     if len(segment_ids) < 2:
         raise ValueError("Cần ít nhất 2 phân đoạn để gộp.")
 
@@ -270,7 +274,7 @@ def merge_segments(
         order_index=segs[0].order_index,
         raw_text=merged_raw,
         clean_text=merged_clean,
-        page_ref=segs[0].page_ref,
+        page_ref=",".join(dict.fromkeys(ref for seg in segs for ref in (seg.page_ref or "").split(",") if ref)),
         parent_ids=json.dumps([s.id for s in segs]),
         active=True,
         revision=1
@@ -312,6 +316,7 @@ def delete_segment(
     Deactivates a segment (soft delete / remove from active workspace).
     Invalidates/removes any associated alignments and shifts order_index of subsequent segments.
     """
+    lock_project(db, project_id)
     seg = db.query(Segment).filter(
         Segment.id == segment_id,
         Segment.project_id == project_id,

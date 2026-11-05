@@ -12,7 +12,8 @@ from .routers import projects, segments, alignments, quality, suggestions, expor
 from .services.quality import get_project_statistics
 
 # Create tables
-Base.metadata.create_all(bind=engine)
+from .migrations import migrate_database
+migrate_database(engine)
 
 app = FastAPI(
     title="HanViet Alignment Studio",
@@ -86,3 +87,29 @@ def export_page(project_id: str, request: Request, db: Session = Depends(get_db)
         return templates.TemplateResponse(request=request, name="404.html", context={"message": "Không tìm thấy dự án"})
     stats = get_project_statistics(db, project_id)
     return templates.TemplateResponse(request=request, name="export.html", context={"project": project, "stats": stats})
+
+
+@app.get('/sources/{project_id}')
+def source_page(project_id: str, request: Request, db: Session = Depends(get_db)):
+    project = db.get(Project, project_id)
+    if not project:
+        return templates.TemplateResponse(request=request, name='404.html', context={'message': 'Không tìm thấy dự án'}, status_code=404)
+    return templates.TemplateResponse(request=request, name='sources.html', context={'project': project})
+
+
+@app.get('/source/{project_id}/{language}')
+def open_source(project_id: str, language: str, page: str = '', db: Session = Depends(get_db)):
+    import json
+    from fastapi.responses import Response, RedirectResponse
+    from .services.documents import current_document
+    doc = current_document(db, project_id, language)
+    if doc:
+        provenance = json.loads(doc.provenance or '{}')
+        name = provenance.get('source_upload_name', '')
+        if doc.source_bytes is not None:
+            return Response(doc.source_bytes, media_type='application/pdf' if name.lower().endswith('.pdf') else 'application/octet-stream',
+                            headers={'Content-Disposition': 'inline' if name.lower().endswith('.pdf') else 'attachment; filename="source"'})
+        url = provenance.get('source', {}).get('url', '')
+        if url.startswith(('https://', 'http://')):
+            return RedirectResponse(url + ('#page=' + page if page.isdigit() and '#' not in url else ''))
+    return RedirectResponse('/sources/' + project_id + '#' + language)

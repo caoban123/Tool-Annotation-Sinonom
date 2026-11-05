@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import Alignment, AlignmentMember, Segment
 from ..schemas import AlignmentCreateRequest, AlignmentOut, AlignmentUndoRequest, SegmentOut
-from ..services.alignment import create_alignment, undo_last_alignment
+from ..services.alignment import create_alignment, undo_last_alignment, confirm_alignment
 
 router = APIRouter(prefix="/api/alignments", tags=["alignments"])
 
@@ -108,3 +108,17 @@ def delete_alignment(alignment_id: str, db: Session = Depends(get_db)):
     undo_last_alignment(db, project_id, alignment_id)
     db.commit()
     return {"status": "success", "deleted_id": alignment_id}
+
+
+@router.post('/{alignment_id}/confirm', response_model=AlignmentOut)
+def reconfirm_alignment(alignment_id: str, db: Session = Depends(get_db)):
+    alignment = db.get(Alignment, alignment_id)
+    if not alignment:
+        raise HTTPException(404, 'Không tìm thấy cặp')
+    try:
+        confirm_alignment(db, alignment)
+        db.commit()
+        return _format_alignment_out(db, alignment)
+    except ValueError as error:
+        db.rollback()
+        raise HTTPException(409, str(error))

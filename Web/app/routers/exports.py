@@ -1,7 +1,7 @@
 import tempfile
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import Project
@@ -83,34 +83,12 @@ def export_raw_text(
     if not project:
         raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
 
-    # Check if raw storage file exists
-    storage_path = Path(__file__).resolve().parent.parent.parent / "data" / "documents" / f"{project_id}_{language}_raw.txt"
-    if storage_path.exists():
-        return FileResponse(
-            path=str(storage_path),
-            filename=f"{project.ma_tac_pham}_{language}_raw_tho.txt",
-            media_type="text/plain; charset=utf-8"
-        )
-
-    # Fallback to segments raw_text
-    segs = db.query(Segment).filter(
-        Segment.project_id == project_id,
-        Segment.language == language,
-        Segment.active == True
-    ).order_by(Segment.order_index).all()
-    raw_content = "\n".join(s.raw_text for s in segs)
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
-    tmp_path = Path(tmp.name)
-    tmp.close()
-
-    with open(tmp_path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(raw_content)
-
-    return FileResponse(
-        path=str(tmp_path),
-        filename=f"{project.ma_tac_pham}_{language}_raw_tho.txt",
-        media_type="text/plain; charset=utf-8"
-    )
+    from ..services.documents import current_document, raw_snapshot
+    data = raw_snapshot(current_document(db, project_id, language))
+    if data is None:
+        raise HTTPException(404, 'Thiếu snapshot gốc khớp hash; không dùng phân đoạn đã sửa thay bản thô')
+    return Response(data, media_type='text/plain; charset=utf-8',
+                    headers={'Content-Disposition': f'attachment; filename="{language}_raw.txt"'})
 
 @router.get("/xlsx")
 def export_xlsx_endpoint(project_id: str = Query(...), db: Session = Depends(get_db)):
@@ -134,10 +112,16 @@ def export_xlsx_endpoint(project_id: str = Query(...), db: Session = Depends(get
     )
 
 @router.get("/zip")
-def export_delivery_zip_endpoint(project_id: str = Query(...), db: Session = Depends(get_db)):
+def export_delivery_zip_endpoint(project_id: str = Query(...), delivery: bool = False, db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+
+    if delivery:
+        from ..services.quality import delivery_checklist
+        checklist = delivery_checklist(db, project_id)
+        if not checklist['ready']:
+            raise HTTPException(400, 'Chưa sẵn sàng bàn giao: ' + '; '.join(c['label'] for c in checklist['conditions'] if not c['passed']))
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
     zip_path = Path(tmp.name)

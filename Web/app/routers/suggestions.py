@@ -7,7 +7,10 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import Project, Document, Segment, Alignment
 from ..schemas import AISuggestionsFile, AlignmentOut
-from ..services.alignment import create_alignment
+from ..services.alignment import create_alignment, confirm_alignment, infer_alignment_type
+from ..services.integrity import source_context, lock_project
+from ..services.versioning import record_revision
+from pydantic import ValidationError
 from .alignments import _format_alignment_out
 
 router = APIRouter(prefix="/api/suggestions", tags=["suggestions"])
@@ -19,8 +22,8 @@ def export_segments_for_ai(project_id: str = Query(...), db: Session = Depends(g
     if not project:
         raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
 
-    han_doc = db.query(Document).filter(Document.project_id == project_id, Document.language == "han").first()
-    viet_doc = db.query(Document).filter(Document.project_id == project_id, Document.language == "viet").first()
+    han_doc = db.query(Document).filter(Document.project_id == project_id, Document.active == True, Document.language == "han").first()
+    viet_doc = db.query(Document).filter(Document.project_id == project_id, Document.active == True, Document.language == "viet").first()
 
     segments = db.query(Segment).filter(
         Segment.project_id == project_id,
@@ -32,8 +35,8 @@ def export_segments_for_ai(project_id: str = Query(...), db: Session = Depends(g
         "project_id": project.id,
         "task_id": project.tasks[0].id if project.tasks else None,
         "revision": project.revision,
-        "source_sha256_han": han_doc.clean_sha256 if han_doc else "",
-        "source_sha256_viet": viet_doc.clean_sha256 if viet_doc else "",
+        "source_sha256_han": source_context(db, project_id)["hashes"]["han"],
+        "source_sha256_viet": source_context(db, project_id)["hashes"]["viet"],
         "exported_at": datetime.datetime.utcnow().isoformat(),
         "segments": [
             {
@@ -63,8 +66,8 @@ async def import_ai_suggestions(
     if not project:
         raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
 
-    han_doc = db.query(Document).filter(Document.project_id == project_id, Document.language == "han").first()
-    viet_doc = db.query(Document).filter(Document.project_id == project_id, Document.language == "viet").first()
+    han_doc = db.query(Document).filter(Document.project_id == project_id, Document.active == True, Document.language == "han").first()
+    viet_doc = db.query(Document).filter(Document.project_id == project_id, Document.active == True, Document.language == "viet").first()
 
     content = await file.read()
     try:
@@ -72,57 +75,36 @@ async def import_ai_suggestions(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"File JSON không hợp lệ: {str(e)}")
 
-    # Verify hashes and revision
-    expected_han_hash = han_doc.clean_sha256 if han_doc else ""
-    expected_viet_hash = viet_doc.clean_sha256 if viet_doc else ""
-
-    imported_han_hash = data.get("source_sha256_han")
-    imported_viet_hash = data.get("source_sha256_viet")
-
-    if imported_han_hash and imported_han_hash != expected_han_hash:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Hash văn bản Hán không khớp (file gợi ý: {imported_han_hash[:8]}..., hiện tại: {expected_han_hash[:8]}...). File gợi ý bị cũ (stale)!"
-        )
-
-    if imported_viet_hash and imported_viet_hash != expected_viet_hash:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Hash văn bản Việt không khớp (file gợi ý: {imported_viet_hash[:8]}..., hiện tại: {expected_viet_hash[:8]}...). File gợi ý bị cũ (stale)!"
-        )
-
-    suggestions_list = data.get("suggestions", [])
-    created_count = 0
-
-    for item in suggestions_list:
-        han_ids = item.get("han_ids", [])
-        viet_ids = item.get("viet_ids", [])
-        score = item.get("score", 0.0)
-        expl = item.get("explanation", "")
-
-        if not han_ids or not viet_ids:
-            continue
-
+    try:
+        payload = AISuggestionsFile.model_validate(data)
+    except ValidationError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    lock_project(db, project_id)
+    context = source_context(db, project_id)
+    if payload.project_id != project_id or payload.source_revision != project.revision:
+        raise HTTPException(status_code=400, detail="Project/revision mismatch; export segments again")
+    if not han_doc or not viet_doc or (payload.source_sha256_han != context['hashes']['han'] or
+                                      payload.source_sha256_viet != context['hashes']['viet']):
+        raise HTTPException(status_code=400, detail="Source hash mismatch; suggestions are stale")
+    if payload.task_id and payload.task_id not in {task.id for task in project.tasks}:
+        raise HTTPException(status_code=400, detail="Task does not belong to project")
+    created, rejected = 0, []
+    for index, item in enumerate(payload.suggestions):
         try:
-            create_alignment(
-                db,
-                project_id=project_id,
-                han_segment_ids=han_ids,
-                viet_segment_ids=viet_ids,
-                notes=f"AI [{data.get('model_name', 'model')}] score={score:.3f}. {expl}".strip(),
-                status="suggested"
-            )
-            created_count += 1
-        except Exception:
-            # Skip invalid suggestions (e.g. overlapping already confirmed segments)
-            pass
-
+            with db.begin_nested():
+                if item.alignment_type != infer_alignment_type(len(item.han_ids), len(item.viet_ids)):
+                    raise ValueError('Cardinality does not match alignment_type')
+                alignment = create_alignment(db, project_id, item.han_ids, item.viet_ids,
+                    task_id=payload.task_id, notes=f"AI [{payload.model_name}] score={item.score:.3f}. {item.explanation or ''}",
+                    status='suggested')
+                alignment.suggestion_context = json.dumps(dict(context, source_revision=payload.source_revision))
+                db.flush()
+            created += 1
+        except ValueError as error:
+            rejected.append(dict(index=index, reason=str(error)))
     db.commit()
-    return {
-        "status": "success",
-        "imported_suggestions_count": created_count,
-        "model_name": data.get("model_name")
-    }
+    return dict(status='success', imported_suggestions_count=created,
+                rejected_suggestions_count=len(rejected), rejected=rejected, model_name=payload.model_name)
 
 @router.post("/{alignment_id}/accept", response_model=AlignmentOut)
 def accept_suggestion(alignment_id: str, db: Session = Depends(get_db)):
@@ -130,10 +112,13 @@ def accept_suggestion(alignment_id: str, db: Session = Depends(get_db)):
     align = db.query(Alignment).filter(Alignment.id == alignment_id).first()
     if not align:
         raise HTTPException(status_code=404, detail="Không tìm thấy gợi ý")
-    align.status = "confirmed"
-    align.updated_at = datetime.datetime.utcnow()
-    db.commit()
-    return _format_alignment_out(db, align)
+    try:
+        confirm_alignment(db, align)
+        db.commit()
+        return _format_alignment_out(db, align)
+    except ValueError as error:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(error))
 
 @router.post("/{alignment_id}/reject")
 def reject_suggestion(alignment_id: str, db: Session = Depends(get_db)):
@@ -141,6 +126,8 @@ def reject_suggestion(alignment_id: str, db: Session = Depends(get_db)):
     align = db.query(Alignment).filter(Alignment.id == alignment_id).first()
     if not align:
         raise HTTPException(status_code=404, detail="Không tìm thấy gợi ý")
+    lock_project(db, align.project_id)
+    record_revision(db, align.project_id, "reject_suggestion", "Alignment", align.id)
     align.status = "rejected"
     align.updated_at = datetime.datetime.utcnow()
     db.commit()

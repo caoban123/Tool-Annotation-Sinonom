@@ -1,0 +1,13 @@
+{% extends "layout.html" %}
+{% block title %}Nguồn và nhiệm vụ — {{ project.name }}{% endblock %}
+{% block content %}
+<div class="page-scroll" id="sourcesApp" data-project-id="{{ project.id }}">
+  <h1 class="text-2xl font-bold">Nguồn tài liệu và nhiệm vụ</h1>
+  <p class="my-3 text-slate-600">Kiểm kê riêng hai ngôn ngữ. Có thể tải tệp nguồn vào ZIP; URL được lưu làm tham chiếu, không tự tải tài liệu ngoài.</p>
+  <div id="sourceForms" class="grid gap-5 md:grid-cols-2"></div>
+  <section class="panel mt-5"><h2 class="text-lg font-bold">Người thực hiện và mục tiêu</h2><div id="taskForms"></div>
+    <button class="action mt-3" id="addTask">Thêm nhiệm vụ</button>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/sources.js"></script>{% endblock %}

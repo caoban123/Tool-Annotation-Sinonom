@@ -1,6 +1,7 @@
 import time
 import threading
 import socket
+import json
 from pathlib import Path
 import pytest
 import uvicorn
@@ -140,4 +141,82 @@ def test_playwright_e2e_workflow(live_server, tmp_path):
         assert page.locator("a:has-text('Tải Excel XLSX')").is_visible()
         assert page.locator("a:has-text('Tải Gói Giao Nộp (ZIP)')").is_visible()
 
+        browser.close()
+
+
+def test_offline_responsive_review_and_focus(live_server):
+    """Exercise the actual local assets and UI at desktop and phone widths."""
+    with sync_playwright() as p:
+        browser=p.chromium.launch(channel='chrome',headless=True)
+        context=browser.new_context(viewport={'width':1366,'height':768})
+        forbidden=[]
+        def local_only(route):
+            if route.request.url.startswith(live_server):
+                route.continue_()
+            else:
+                forbidden.append(route.request.url);route.abort()
+        context.route('**/*',local_only)
+        page=context.new_page();errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
+        project=page.request.post(live_server+'/api/projects',data={'name':'Offline UI QA','target_count':1}).json()['id']
+        upload=page.request.post(f'{live_server}/api/projects/{project}/import',multipart={
+            'han_file':{'name':'han.txt','mimeType':'text/plain','buffer':'甲。乙。'.encode()},
+            'viet_file':{'name':'viet.txt','mimeType':'text/plain','buffer':'Một. Hai.'.encode()}})
+        assert upload.ok,upload.text()
+        source=page.request.get(f'{live_server}/api/suggestions/export-segments?project_id={project}').json()
+        han=next(s for s in source['segments'] if s['language']=='han')
+        viet=next(s for s in source['segments'] if s['language']=='viet')
+        payload=dict(schema_version='1.0',project_id=project,task_id=source['task_id'],source_revision=source['revision'],
+            source_sha256_han=source['source_sha256_han'],source_sha256_viet=source['source_sha256_viet'],
+            model_name='browser-test',model_version='1',created_at='2026-11-05',
+            suggestions=[dict(han_ids=[han['segment_id']],viet_ids=[viet['segment_id']],alignment_type='1-1',score=.9)]*2)
+        response=page.request.post(f'{live_server}/api/suggestions/import?project_id={project}',multipart={
+            'file':{'name':'suggestions.json','mimeType':'application/json','buffer':json.dumps(payload).encode()}})
+        assert response.ok,response.text()
+        page.goto(f'{live_server}/qa/{project}');page.wait_for_selector('#pendingPairs .sample-row')
+        assert page.locator('#pendingPairs .sample-row').count()==2
+        page.locator('#pendingPairs .sample-row').first.get_by_role('button',name='Duyệt cặp').click()
+        page.wait_for_function("document.querySelectorAll('#pendingPairs .sample-row').length===1")
+        page.locator('#pendingPairs .sample-row').get_by_role('button',name='Duyệt cặp').click()
+        page.wait_for_selector('#toastContainer [role=alert]')
+        page.locator('#pendingPairs .sample-row').get_by_role('button',name='Từ chối gợi ý').click()
+        page.wait_for_function("document.querySelectorAll('#pendingPairs .sample-row').length===0")
+        page.goto(f'{live_server}/workspace/{project}')
+        page.wait_for_selector('#hanColumn .segment-card')
+        page.wait_for_function("document.querySelector('#alignProgressText').textContent.includes('1')")
+        # Focus stays in a modal and returns to the invoking edit button.
+        edit=page.locator('#hanColumn .segment-card').first.get_by_role('button',name='Sửa',exact=True)
+        edit.click();page.wait_for_selector('#editSegmentModal:not(.hidden)')
+        assert page.locator('#edit_seg_text').evaluate('(element)=>element===document.activeElement')
+        page.keyboard.press('Escape');page.wait_for_selector('#editSegmentModal.hidden',state='attached')
+        assert edit.evaluate('(element)=>element===document.activeElement')
+        page.locator('#compactView').check();page.locator('#readingSize').fill('21')
+        page.locator('#readingSize').dispatch_event('input')
+        assert page.locator('#hanColumn .segment-text').first.evaluate('(e)=>getComputedStyle(e).fontSize')=='21px'
+        artifacts=Path('artifacts/web-plan-ui');artifacts.mkdir(parents=True,exist_ok=True)
+        page.screenshot(path=str(artifacts/'workspace-desktop.png'))
+        # Save a manual error, rescan, and navigate from the retained issue.
+        page.goto(f'{live_server}/qa/{project}');page.wait_for_selector('#sampleRows .sample-row')
+        row=page.locator('#sampleRows .sample-row').first
+        row.locator('select[name=outcome]').select_option('error')
+        row.locator('input[value=OMISSION]').check();row.locator('button').click()
+        page.wait_for_function("document.querySelector('#qaSummary').textContent.includes('100%')")
+        page.locator('#scanQa').click()
+        page.wait_for_selector('#issuesTableBody tr:has-text("manual_review")')
+        page.locator('#issuesTableBody tr:has-text("manual_review") a').click()
+        page.wait_for_selector('.qa-target')
+        assert page.locator('header nav [aria-current=page]').inner_text()=='Dóng Hàng'
+        for width,height in [(1366,768),(390,844)]:
+            page.set_viewport_size({'width':width,'height':height})
+            for path in [f'/workspace/{project}',f'/clean/{project}',f'/qa/{project}',f'/sources/{project}',f'/export/{project}']:
+                response=page.goto(live_server+path);assert response.ok
+                page.wait_for_timeout(200)
+                assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'),(width,path,page.evaluate('document.documentElement.scrollWidth'))
+                assert page.locator('header nav [aria-current=page]').count()==1
+            page.goto(f'{live_server}/workspace/{project}');page.wait_for_selector('.segment-card')
+            page.screenshot(path=str(artifacts/f'workspace-{width}.png'))
+        page.goto(f'{live_server}/export/{project}')
+        page.wait_for_selector('#deliveryChecklist .checklist-row')
+        assert 'còn điều kiện' in page.locator('#deliveryChecklist').inner_text()
+        assert not forbidden,forbidden
+        assert not errors,errors
         browser.close()

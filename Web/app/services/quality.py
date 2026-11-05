@@ -2,7 +2,11 @@ import uuid
 from typing import Dict, Any, List
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from ..models import Alignment, AlignmentMember, Segment, QAIssue, Project
+from ..models import Alignment, AlignmentMember, Segment, QAIssue, Project, QualityReview, Task, Document
+import json
+import datetime
+from .integrity import alignment_fingerprint, lock_project
+from .versioning import record_revision
 
 def run_automated_qa(db: Session, project_id: str) -> List[QAIssue]:
     """
@@ -15,7 +19,7 @@ def run_automated_qa(db: Session, project_id: str) -> List[QAIssue]:
     # Clear previous automated open issues
     db.query(QAIssue).filter(
         QAIssue.project_id == project_id,
-        QAIssue.status == "open"
+        QAIssue.origin == 'automated', QAIssue.status == "open"
     ).delete()
     db.flush()
 
@@ -57,6 +61,7 @@ def run_automated_qa(db: Session, project_id: str) -> List[QAIssue]:
     last_han_order = -1
     last_viet_order = -1
 
+    confirmed_alignments.sort(key=lambda a: min((m.segment.order_index for m in a.members if m.side == 'han' and m.segment), default=float('inf')))
     for align in confirmed_alignments:
         members = db.query(AlignmentMember, Segment).join(Segment).filter(
             AlignmentMember.alignment_id == align.id
@@ -117,6 +122,8 @@ def run_automated_qa(db: Session, project_id: str) -> List[QAIssue]:
             last_han_order = max(last_han_order, max(s.order_index for s in han_segs))
             last_viet_order = max(last_viet_order, max(s.order_index for s in viet_segs))
 
+    for issue in new_issues:
+        issue.origin = 'automated'
     db.flush()
     return new_issues
 
@@ -174,14 +181,9 @@ def get_project_statistics(db: Session, project_id: str) -> Dict[str, Any]:
         QAIssue.status == "open"
     ).count()
 
-    # Evaluated checked sample error rate
-    # If notes contain [CHECKED_VALID] or [CHECKED_ERROR]
-    reviewed_alignments = db.query(Alignment).filter(
-        Alignment.project_id == project_id,
-        Alignment.notes.like("%[CHECKED%")
-    ).all()
+    reviewed_alignments = valid_reviews(db, project_id)
     sample_size = len(reviewed_alignments)
-    error_sample_count = sum(1 for a in reviewed_alignments if "[CHECKED_ERROR]" in a.notes)
+    error_sample_count = sum(review.outcome == 'error' for review in reviewed_alignments)
 
     if sample_size > 0:
         error_rate_pct = round((error_sample_count / sample_size) * 100, 2)
@@ -204,10 +206,92 @@ def get_project_statistics(db: Session, project_id: str) -> Dict[str, Any]:
         "unassigned_viet": unassigned_viet,
         "coverage_han_pct": round((assigned_han_count / total_han * 100), 1) if total_han > 0 else 0.0,
         "coverage_viet_pct": round((assigned_viet_count / total_viet * 100), 1) if total_viet > 0 else 0.0,
-        "target_count": 2000,
+        "target_count": sum(task.target_count for task in db.query(Task).filter_by(project_id=project_id).all()) or 2000,
         "qa_issues_count": qa_issues_count,
         "checked_sample_size": sample_size,
         "checked_error_count": error_sample_count,
         "error_rate_pct": error_rate_pct,
         "evaluation_status": evaluation_status
     }
+
+
+def valid_reviews(db, project_id):
+    result = []
+    for review in db.query(QualityReview).filter_by(project_id=project_id).all():
+        alignment = db.get(Alignment, review.alignment_id)
+        if alignment and alignment.status == 'confirmed' and review.content_hash == alignment_fingerprint(db, alignment):
+            members = db.query(AlignmentMember).filter_by(alignment_id=alignment.id).all()
+            if members and all(m.segment and m.segment.active for m in members):
+                result.append(review)
+    return result
+
+
+def save_review(db, alignment_id, outcome, error_codes, note='', reviewer=''):
+    alignment = db.get(Alignment, alignment_id)
+    if not alignment:
+        raise ValueError('Không tìm thấy cặp dóng hàng')
+    lock_project(db, alignment.project_id)
+    if alignment.status != 'confirmed':
+        raise ValueError('Chỉ kiểm tra mẫu trên cặp đã xác nhận')
+    codes = sorted(set(error_codes))
+    if (outcome == 'error' and not codes) or (outcome == 'correct' and codes):
+        raise ValueError('Cặp lỗi cần loại lỗi; cặp đúng không được có loại lỗi')
+    if outcome not in ('error', 'correct') or any(c not in ('OMISSION', 'ADDITION', 'MISSING') for c in codes):
+        raise ValueError('Đánh giá không hợp lệ')
+    content_hash = alignment_fingerprint(db, alignment)
+    review = db.query(QualityReview).filter_by(alignment_id=alignment_id).first()
+    if not review:
+        review = QualityReview(id='review_' + uuid.uuid4().hex, project_id=alignment.project_id, alignment_id=alignment_id)
+        db.add(review)
+    before = dict(outcome=review.outcome, error_codes=review.error_codes)
+    review.outcome, review.error_codes = outcome, json.dumps(codes)
+    review.note, review.reviewer = note, reviewer
+    review.content_hash = content_hash
+    review.updated_at = datetime.datetime.utcnow()
+    db.query(QAIssue).filter_by(alignment_id=alignment_id, origin='manual_review', status='open').update(
+        {'status': 'resolved', 'resolved_at': datetime.datetime.utcnow()})
+    for code in codes:
+        db.add(QAIssue(id='qa_' + uuid.uuid4().hex, project_id=alignment.project_id,
+                       alignment_id=alignment_id, code=code, origin='manual_review', severity='error', comment=note))
+    record_revision(db, alignment.project_id, 'quality_review', 'Alignment', alignment_id,
+                    before_state=before, after_state=dict(outcome=outcome, error_codes=codes, reviewer=reviewer, note=note))
+    db.flush()
+    return review
+
+
+def delivery_checklist(db, project_id):
+    from .documents import raw_snapshot
+    stats = get_project_statistics(db, project_id)
+    docs = db.query(Document).filter_by(project_id=project_id, active=True).all()
+    sources = {d.language: json.loads(d.provenance or '{}').get('source', {}) for d in docs}
+    complete_sources = all(all(sources.get(lang, {}).get(field) for field in ('title', 'format', 'scope', 'tools'))
+                           and (sources.get(lang, {}).get('url') or sources.get(lang, {}).get('filename'))
+                           and ('pdf' not in sources.get(lang, {}).get('format', '').lower() or bool(sources.get(lang, {}).get('page_count')))
+                           for lang in ('han', 'viet'))
+    from .export import get_confirmed_pairs
+    structure_error = ''
+    try:
+        pairs = get_confirmed_pairs(db, project_id)
+    except ValueError as error:
+        pairs, structure_error = [], str(error)
+    conditions = [
+        ('target', 'Đạt mục tiêu cặp của nhiệm vụ', len(pairs) >= stats['target_count']),
+        ('structure', 'Cấu trúc các cặp xác nhận hợp lệ', not structure_error and bool(pairs)),
+        ('coverage', 'Không còn phân đoạn chưa gán', stats['unassigned_han'] == stats['unassigned_viet'] == 0),
+        ('review', 'Không còn cặp cần duyệt hoặc gợi ý chưa duyệt', not db.query(Alignment).filter(
+            Alignment.project_id == project_id, Alignment.status.in_(['needs_review', 'suggested', 'draft'])).count()),
+        ('sample', 'Có mẫu kiểm tra còn hiệu lực', stats['checked_sample_size'] > 0),
+        ('threshold', 'Tỷ lệ lỗi mẫu ≤30% (mục tiêu ≤20%)', stats['checked_sample_size'] > 0 and stats['checked_error_count'] * 100 <= stats['checked_sample_size'] * 30),
+        ('known_errors', 'Đã sửa các lỗi cụ thể được ghi nhận', stats['checked_error_count'] == 0 and stats['qa_issues_count'] == 0),
+        ('sources', 'Đủ kiểm kê nguồn và công cụ hai ngôn ngữ', complete_sources),
+        ('raw', 'Có snapshot gốc khớp hash cho hai ngôn ngữ', len(docs) == 2 and all(raw_snapshot(d) is not None for d in docs)),
+    ]
+    tasks = db.query(Task).filter_by(project_id=project_id).all()
+    per_task = [dict(id=t.id, assigned_to=t.assigned_to, scope=t.scope, target=t.target_count,
+                    confirmed=db.query(Alignment).filter_by(project_id=project_id, task_id=t.id, status='confirmed').count()) for t in tasks]
+    conditions.append(('task_targets', 'Đạt mục tiêu của từng người/phạm vi nhiệm vụ',
+                       bool(per_task) and all(t['confirmed'] >= t['target'] for t in per_task)))
+    return dict(ready=all(ok for _, _, ok in conditions), stats=stats,
+                conditions=[dict(code=code, label=label, passed=ok) for code, label, ok in conditions],
+                structure_error=structure_error, tasks=per_task, valid_pairs=len(pairs),
+                note='Checklist hỗ trợ tự kiểm tra, không chứng minh toàn bộ cặp đúng ngữ nghĩa.')

@@ -2,6 +2,7 @@ import os
 import sqlite3
 from pathlib import Path
 from sqlalchemy import create_engine, event
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 # Determine base data directory
@@ -11,6 +12,9 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 DB_PATH = DATA_DIR / "hanviet.db"
 DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{DB_PATH.as_posix()}")
+if make_url(DATABASE_URL).database not in (None, ':memory:'):
+    DB_PATH = Path(make_url(DATABASE_URL).database)
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 engine = create_engine(
     DATABASE_URL,
@@ -64,6 +68,9 @@ def restore_sqlite_db(source_path: Path) -> bool:
         try:
             source_conn.backup(dest_conn)
             dest_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            engine.dispose()
+            from .migrations import migrate_database
+            migrate_database(engine)
             return True
         finally:
             dest_conn.close()
