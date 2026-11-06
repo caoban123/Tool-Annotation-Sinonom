@@ -30,6 +30,10 @@ Mở trình duyệt tại: **http://127.0.0.1:8000**
 
 ## Quy trình mới
 
+- **Xóa dự án**: nút Xóa trên mỗi thẻ mở hộp xác nhận theo tên dự án. Xác nhận sẽ
+  xóa văn bản đã nhập (cả phiên bản cũ), nhiệm vụ, cặp dóng hàng, QA và lịch sử
+  trong dự án. Xuất/lưu kết quả trước nếu cần giữ. Nếu dự án vừa thay đổi, tải lại
+  danh sách trước khi xác nhận. Thao tác Hủy hoặc Esc không xóa dữ liệu.
 - **Nguồn & nhiệm vụ**: kiểm kê nguồn Hán/Việt, tải tệp gốc, gắn metadata OCR khớp
   TXT trước biên tập, thêm người/phạm vi và mục tiêu cặp. Chọn nhiệm vụ khi dóng hàng.
 - **QA & Lỗi**: quét cảnh báo tự động; duyệt/từ chối cặp chờ; kiểm tra mẫu đúng/sai

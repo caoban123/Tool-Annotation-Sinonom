@@ -22,6 +22,11 @@ class ProjectOut(BaseModel):
     created_at: datetime.datetime
     updated_at: datetime.datetime
 
+
+class ProjectDeleteRequest(BaseModel):
+    confirmation_name: str = Field(min_length=1)
+    revision: int = Field(ge=1)
+
 class SegmentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -12,7 +12,7 @@ from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import sessionmaker
 from Web.app.db import Base, get_db
 from Web.app.main import app
-from Web.app.models import Project, Document, Segment, Alignment, QAIssue, QualityReview
+from Web.app.models import Project, Task, Document, Segment, Alignment, AlignmentMember, QAIssue, QualityReview, Revision
 from Web.app.migrations import migrate_database
 from Web.app.services.quality import save_review, get_project_statistics
 from Web.app.services.alignment import create_alignment
@@ -268,3 +268,137 @@ def test_checklist_requires_each_task_target_not_just_total(web):
     checklist=client.get('/api/qa/checklist',params={'project_id':project}).json()
     conditions={c['code']:c['passed'] for c in checklist['conditions']}
     assert conditions['target'] and not conditions['task_targets']
+
+
+def deletion_payload(factory, project_id):
+    with factory() as db:
+        project = db.get(Project, project_id)
+        return dict(confirmation_name=project.name, revision=project.revision)
+
+
+def test_delete_project_cascades_all_data_and_keeps_other_project(web):
+    client, factory = web
+    project, han, viet, *_ = seed(client)
+    alignment = confirm(client, project, han[0], viet[0])
+    assert client.post(f'/api/qa/reviews/{alignment}', json=dict(
+        outcome='error', error_codes=['OMISSION'])).status_code == 200
+    # Include archived documents, inactive segments and old alignment records.
+    assert client.post(f'/api/projects/{project}/import', files={
+        'han_file': ('han.txt', '新。'.encode()), 'viet_file': ('viet.txt', 'Mới.'.encode())}).status_code == 200
+    other, other_han, other_viet, *_ = seed(client)
+    confirm(client, other, other_han[0], other_viet[0])
+    before = client.get(f'/api/projects/{other}/stats').json()
+    payload = deletion_payload(factory, project)
+    response = client.request('DELETE', f'/api/projects/{project}', json=payload)
+    assert response.status_code == 200, response.text
+    assert response.json()['project_id'] == project
+    with factory() as db:
+        assert db.get(Project, project) is None and db.get(Project, other) is not None
+        for model in (Task, Document, Segment, Alignment, QAIssue, QualityReview, Revision):
+            assert db.query(model).filter_by(project_id=project).count() == 0, model.__name__
+        assert db.query(AlignmentMember).count() == 2  # only the other project's pair
+        assert db.execute(text('PRAGMA foreign_key_check')).all() == []
+    assert client.get(f'/api/projects/{other}/stats').json() == before
+    assert client.get('/api/exports/raw-text', params={'project_id': other, 'language': 'han'}).content == '𠀀甲。乙。'.encode()
+    assert client.request('DELETE', f'/api/projects/{project}', json=payload).status_code == 404
+
+
+def test_delete_requires_confirmation_and_current_revision(web):
+    client, factory = web
+    project, han, viet, *_ = seed(client)
+    payload = deletion_payload(factory, project)
+    assert client.request('DELETE', f'/api/projects/{project}', json={}).status_code == 422
+    assert client.request('DELETE', f'/api/projects/{project}', json=dict(payload, confirmation_name='wrong')).status_code == 400
+    confirm(client, project, han[0], viet[0])
+    assert client.request('DELETE', f'/api/projects/{project}', json=payload).status_code == 409
+    assert client.get(f'/api/projects/{project}/stats').json()['confirmed_alignments'] == 1
+
+
+def test_delete_failure_rolls_back_entire_project(web):
+    from sqlalchemy.exc import IntegrityError
+    client, factory = web
+    project, han, viet, *_ = seed(client)
+    confirm(client, project, han[0], viet[0])
+    payload = deletion_payload(factory, project)
+    with factory() as db:
+        before = {table.name: db.execute(text(f'SELECT count(*) FROM {table.name}')).scalar()
+                  for table in Base.metadata.sorted_tables}
+        db.execute(text("CREATE TRIGGER block_delete BEFORE DELETE ON segments BEGIN SELECT RAISE(ABORT, 'test failure'); END"))
+        db.commit()
+    with pytest.raises(IntegrityError, match='test failure'):
+        client.request('DELETE', f'/api/projects/{project}', json=payload)
+    with factory() as db:
+        after = {table.name: db.execute(text(f'SELECT count(*) FROM {table.name}')).scalar()
+                 for table in Base.metadata.sorted_tables}
+        assert before == after
+        assert db.execute(text('PRAGMA foreign_key_check')).all() == []
+
+
+def test_delete_dialog_browser_cancel_stale_and_success(web):
+    import socket
+    import threading
+    import time
+    import uvicorn
+    from playwright.sync_api import sync_playwright, expect
+    client, factory = web
+    project, han, viet, *_ = seed(client)
+    other, *_ = seed(client)
+    sock = socket.socket()
+    sock.bind(('127.0.0.1', 0))
+    port = sock.getsockname()[1]
+    server = uvicorn.Server(uvicorn.Config(app, log_level='error'))
+    thread = threading.Thread(target=lambda: server.run(sockets=[sock]), daemon=True)
+    thread.start()
+    try:
+        for _ in range(100):
+            if server.started: break
+            time.sleep(.05)
+        assert server.started
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(channel='chrome', headless=True)
+            page = browser.new_page(viewport=dict(width=1366, height=900))
+            page.route('**/*', lambda route: route.continue_() if route.request.url.startswith(f'http://127.0.0.1:{port}') else route.abort())
+            page.goto(f'http://127.0.0.1:{port}')
+            trigger = page.locator(f'[data-project-id="{project}"]')
+            dialog = page.get_by_role('dialog', name='Xóa dự án?')
+            trigger.click()
+            expect(dialog).to_be_visible()
+            expect(page.locator('#cancelDeleteProject')).to_be_focused()
+            page.keyboard.press('Escape')
+            expect(dialog).not_to_be_visible()
+            expect(trigger).to_be_focused()
+            assert len(client.get('/api/projects').json()) == 2
+            trigger.click()
+            page.locator('#cancelDeleteProject').click()
+            expect(dialog).not_to_be_visible()
+            # Another edit after the card was rendered must not be silently deleted.
+            confirm(client, project, han[0], viet[0])
+            trigger.click()
+            page.locator('#confirmDeleteProject').click()
+            expect(page.locator('#deleteProjectError')).to_contain_text('Dự án đã thay đổi')
+            expect(dialog).to_be_visible()
+            page.locator('#cancelDeleteProject').click()
+            page.reload()
+            artifacts = Path('artifacts/project-delete')
+            artifacts.mkdir(parents=True, exist_ok=True)
+            for width in (1366, 390):
+                page.set_viewport_size(dict(width=width, height=900))
+                trigger.click()
+                box = dialog.bounding_box()
+                assert box and box['x'] >= 0 and box['x'] + box['width'] <= width
+                assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                page.screenshot(path=str(artifacts / f'dialog-{width}.png'))
+                page.locator('#cancelDeleteProject').click()
+            trigger.click()
+            page.locator('#confirmDeleteProject').click()
+            expect(page.locator(f'[data-project-card="{project}"]')).to_have_count(0)
+            expect(page.locator(f'[data-project-card="{other}"]')).to_be_visible()
+            page.locator(f'[data-project-id="{other}"]').click()
+            page.locator('#confirmDeleteProject').click()
+            expect(page.get_by_role('heading', name='Chưa có dự án nào')).to_be_visible()
+            assert client.get('/api/projects').json() == []
+            browser.close()
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5)
+        sock.close()

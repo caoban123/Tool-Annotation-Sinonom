@@ -2,9 +2,11 @@ import uuid
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
+from sqlalchemy import delete
 from ..db import get_db
 from ..models import Project, Task, Document, Segment, Alignment
-from ..schemas import ProjectCreate, ProjectOut, StatsOut, SourceUpdate, TaskRequest
+from ..schemas import ProjectCreate, ProjectOut, ProjectDeleteRequest, StatsOut, SourceUpdate, TaskRequest
+from ..services.integrity import lock_project
 import json
 from ..services.documents import current_document, attach_page_metadata
 from ..services.versioning import record_revision
@@ -41,6 +43,25 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(project)
     return project
+
+
+@router.delete('/{project_id}')
+def delete_project(project_id: str, payload: ProjectDeleteRequest, db: Session = Depends(get_db)):
+    lock_project(db, project_id)
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, 'Không tìm thấy dự án')
+    if payload.confirmation_name != project.name:
+        raise HTTPException(400, 'Tên dự án xác nhận không khớp')
+    if payload.revision != project.revision:
+        raise HTTPException(409, 'Dự án đã thay đổi. Tải lại trang và kiểm tra trước khi xóa.')
+    # All project-owned tables have ON DELETE CASCADE, including raw snapshots,
+    # archived documents, memberships, QA reviews and revision history. A single
+    # statement keeps the deletion atomic and avoids loading large texts in ORM.
+    db.execute(delete(Project).where(Project.id == project_id),
+               execution_options={'synchronize_session': False})
+    db.commit()
+    return {'status': 'deleted', 'project_id': project_id}
 
 @router.post("/{project_id}/import")
 async def import_project_files(

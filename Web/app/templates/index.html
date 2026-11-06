@@ -20,7 +20,7 @@
     {% for item in projects %}
     {% set p = item.project %}
     {% set s = item.stats %}
-    <div class="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow transition flex flex-col p-5">
+    <div data-project-card="{{ p.id }}" class="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow transition flex flex-col p-5">
       <div class="flex items-start justify-between">
         <div>
           <span class="inline-block px-2.5 py-0.5 rounded text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -29,6 +29,9 @@
           <h2 class="text-lg font-bold text-slate-800 mt-2 truncate">{{ p.name }}</h2>
           <p class="text-xs text-slate-400 font-mono mt-0.5">Tác phẩm: {{ p.ma_tac_pham }} | Phạm vi: {{ p.scope }}</p>
         </div>
+        <button type="button" class="delete-project-trigger project-delete-button"
+          data-project-id="{{ p.id }}" data-project-name="{{ p.name }}" data-project-revision="{{ p.revision }}"
+          aria-label="Xóa dự án {{ p.name }}">Xóa</button>
       </div>
 
       <!-- Progress Stats -->
@@ -91,6 +94,18 @@
   </div>
 </div>
 
+<dialog id="deleteProjectDialog" class="project-delete-dialog" aria-labelledby="deleteProjectTitle" aria-describedby="deleteProjectDescription">
+  <h2 id="deleteProjectTitle">Xóa dự án?</h2>
+  <p id="deleteProjectName" class="project-delete-name"></p>
+  <p id="deleteProjectDescription">Toàn bộ văn bản đã nhập, cặp dóng hàng, nhiệm vụ, QA và lịch sử của dự án này sẽ bị xóa vĩnh viễn. Hãy xuất file trước nếu cần giữ kết quả.</p>
+  <p id="deleteProjectError" role="alert"></p>
+  <p id="deleteProjectStatus" role="status"></p>
+  <div class="project-delete-actions">
+    <button type="button" id="cancelDeleteProject" autofocus>Hủy</button>
+    <button type="button" id="confirmDeleteProject" class="project-delete-confirm">Xóa dự án</button>
+  </div>
+</dialog>
+
 <!-- Modal: Tạo Dự Án Mới -->
 <div id="newProjectModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
   <div class="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 border border-slate-200">
@@ -152,6 +167,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/projects.js"></script>
 <script>
 async function handleCreateProject(e) {
   e.preventDefault();
