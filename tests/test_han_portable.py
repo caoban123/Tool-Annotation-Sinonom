@@ -40,6 +40,7 @@ def test_runner_pdf_export_and_resume(tmp_path):
     assert calls >= result['total_pages']
     assert all(p['page_number'] == i + 1 for i, p in enumerate(result['pages']))
     config['max_retry_tokens'] = 16384
+    config['qwen_load_in_4bit'] = True  # Optional Qwen setting must not invalidate Paddle cache.
     resumed = run(config, engine)
     assert engine.calls == calls
     assert all(p['is_cached'] for p in resumed['pages'])

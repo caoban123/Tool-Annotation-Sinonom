@@ -11,6 +11,7 @@ from PIL import Image, ImageOps
 from OCR.utils.checkpoints import OCRCheckpointManager
 from OCR.utils.export_text import export_ocr_result
 from OCR.utils.ocr_pipeline import OCRPipeline, PaddleVLOCREngine
+from OCR.utils.qwen_engine import QwenVLOCREngine, is_qwen_model
 from OCR.utils.render_pdf import render_pdf_to_images
 from OCR.utils.resilient_pages import recognize_page
 from OCR.utils.notebook_process import emit_progress
@@ -59,10 +60,14 @@ def run(config, engine=None):
     for name in ('han.txt', 'han.partial.txt', 'han_metadata.json', 'han_ocr.zip'):
         (output_dir / name).unlink(missing_ok=True)
     digest = source_digest(path)
+    qwen = is_qwen_model(config['model_id'])
     cache_config = {k: config.get(k) for k in (
         'model_id', 'model_revision', 'max_new_tokens', 'max_pixels', 'render_scale',
         'reading_order', 'split_spread', 'use_gpu')}
     cache_config['pipeline_version'] = 2
+    if qwen:
+        cache_config.update(qwen_adapter_version=1,
+                            load_in_4bit=config.get('qwen_load_in_4bit', True))
     # Retry ceiling changes only failed/truncated generations, which are never
     # cached. Keep existing completed-page keys so a retry can resume page 27
     # without recomputing pages 1-26.
@@ -89,14 +94,17 @@ def run(config, engine=None):
         if engine is None:
             report_progress('model_loading', page=number)
             print(f"[OCR] Đang nạp model {config['model_id']} (use_gpu={config.get('use_gpu', True)})...", flush=True)
-            engine = PaddleVLOCREngine(
+            engine_class = QwenVLOCREngine if qwen else PaddleVLOCREngine
+            model_options = dict(load_in_4bit=config.get('qwen_load_in_4bit', True),
+                                 reading_order=config.get('reading_order', 'rtl_vertical')) if qwen else {}
+            engine = engine_class(
                 model_id=config['model_id'], use_gpu=config.get('use_gpu', True),
                 max_new_tokens=config.get('max_new_tokens', 4096),
                 max_pixels=config.get('max_pixels', 1003520), revision=config.get('model_revision'),
                 # Stop a failed crop promptly and split it instead of escalating
                 # full-page generations to 16K tokens for another fifteen minutes.
                 max_retry_tokens=config.get('max_new_tokens', 4096),
-                region_timeout=config.get('region_timeout', 90))
+                region_timeout=config.get('region_timeout', 90), **model_options)
         if pipeline is None:
             pipeline = OCRPipeline(engine, OCRCheckpointManager(str(output_dir / 'region_cache')),
                                    config.get('reading_order', 'rtl_vertical'))
@@ -166,7 +174,7 @@ def run(config, engine=None):
     report_progress('export', region=None)
     from importlib.metadata import version
     result['packages'] = {}
-    for package in ('torch', 'transformers', 'pypdfium2', 'pillow'):
+    for package in ('torch', 'transformers', 'pypdfium2', 'pillow', 'accelerate', 'bitsandbytes'):
         try:
             result['packages'][package] = version(package)
         except Exception:

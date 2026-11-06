@@ -20,6 +20,8 @@ Upload trực tiếp `notebooks/01_OCR_Han.ipynb`, bật GPU/Internet, điền `
 và Run all. Notebook tự mang mã nguồn, dùng Transformers native 5.1.0 trong venv riêng;
 không cần PaddlePaddle và không cài lại torch/torchvision trên runtime GPU chuẩn.
 Hướng dẫn chi tiết: [PORTABLE_HAN.md](PORTABLE_HAN.md).
+Cell 1 có tùy chọn `Qwen/Qwen3-VL-8B-Instruct` và `QWEN_LOAD_IN_4BIT`;
+chọn model rồi Run all. Chế độ Qwen 4-bit cần CUDA và cài thêm bitsandbytes tự động.
 Lệnh cài PaddlePaddle ở trên chỉ dành cho adapter OCR cổ điển, không dành cho notebook Hán mới.
 
 ## Notebook Việt trên Kaggle/Colab

@@ -30,6 +30,46 @@ Colab lưu tại `/content/han_ocr/output`, Kaggle tại `/kaggle/working/han_oc
 `han.txt` là UTF-8; `han_metadata.json` lưu kết quả từng trang, thời gian, model và cấu hình.
 ZIP có thêm checkpoint để tiếp tục sau khi gián đoạn.
 
+## Tùy chọn Qwen3-VL-8B-Instruct
+
+Trong cell 1 của `01_OCR_Han.ipynb`, thay dòng `MODEL_ID` bằng:
+
+```python
+MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct"
+QWEN_LOAD_IN_4BIT = True
+USE_GPU = True
+```
+
+Sau đó Run all. Nếu đã chạy notebook rồi, sửa cell 1 và chạy cell đó, sau đó
+chạy lại từ cell 4 (cài/preflight) đến cuối. Chỉ có một dòng MODEL_ID cần hiệu lực;
+notebook nhận diện Qwen từ tên model, hoặc `model_type` trong config của thư mục local.
+Để trở về model cũ, đặt `MODEL_ID="PaddlePaddle/PaddleOCR-VL-1.6"`.
+
+Qwen dùng prompt chép nguyên văn, giữ phồn thể/chữ hiếm, đọc cột dọc phải sang trái;
+không yêu cầu dịch hoặc thêm dấu câu. Đây là chỉ dẫn, không bảo đảm model không sai.
+Vẫn dùng cùng cơ chế chia vùng, giới hạn token/thời gian, ảnh vùng lỗi và xuất partial.
+Cache tách theo model và chế độ 4-bit; đổi model không xóa checkpoint cũ.
+Hãy tải/lưu ZIP trước khi đổi model vì các file kết quả trong cùng output được thay bởi lượt mới.
+
+Qwen 8B nặng hơn PaddleOCR-VL 0.9B. Mặc định tùy chọn Qwen dùng NF4 4-bit với
+bitsandbytes 0.48.2 để giảm VRAM; cell 4 kiểm tra kernel 4-bit trước khi tải weights.
+Chỉ cài gói này khi chọn Qwen 4-bit, giữ nguyên PyTorch/CUDA của nền tảng.
+Chế độ 4-bit có thể ảnh hưởng chất lượng; cần đối chiếu vài trang trước khi chạy cả sách.
+`QWEN_LOAD_IN_4BIT=False` dùng FP16/BF16 trên GPU: riêng weights 8B đã khoảng
+16 GB, chưa tính ảnh và KV cache. CPU dùng FP32 rất nặng và phải tắt 4-bit.
+Thiếu VRAM: giảm `MAX_PIXELS`, chia ảnh hai mặt bằng `SPLIT_SPREAD=True` nếu phù hợp.
+Nếu model chạy chậm, thử tăng `REGION_TIMEOUT`/`PAGE_TIMEOUT` trên vài trang trước.
+
+Chưa kiểm chứng Qwen 8B đầy đủ hoặc NF4 trên GPU Colab/Kaggle trong phiên phát triển.
+Các kiểm tra native dùng model Qwen cấu hình nhỏ với weights ngẫu nhiên để kiểm tra
+vision/attention/KV cache, không phải bằng chứng chất lượng OCR.
+Đã đối chiếu processor Qwen3-VL chính thức: ảnh đi qua chat template với đúng
+`pixel_values`, `image_grid_thw` và giới hạn pixel. Kiểm thử bao gồm chọn model,
+FP16/BF16, cấu hình NF4, không cast model sau lượng tử hóa, prompt đọc cột, chặn
+text bị cắt, cache riêng và chạy hết notebook ở smoke mode cho cả hai lựa chọn.
+Nguồn: [Qwen3-VL-8B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct),
+[bitsandbytes](https://huggingface.co/docs/bitsandbytes/installation).
+
 ## Thay đổi kỹ thuật
 
 - Transformers native `AutoModelForImageTextToText` và `AutoProcessor`, pin `5.1.0`.

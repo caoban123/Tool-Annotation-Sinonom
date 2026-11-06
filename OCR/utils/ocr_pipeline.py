@@ -59,20 +59,23 @@ class PaddleVLOCREngine:
         self.engine_type = f"transformers_native ({self.model_id}, {dtype})"
         print(f"[OCR] Model sẵn sàng: {self.hardware}, {dtype}; retry tối đa {self.max_retry_tokens} token.", flush=True)
 
-    def recognize_image(self, image: Image.Image, show_progress=True):
-        import torch
-        from transformers import StoppingCriteriaList
-        image = image.convert("RGB")
+    def _prepare_inputs(self, image):
         messages = [{"role": "user", "content": [
             {"type": "image", "image": image}, {"type": "text", "text": "OCR:"}
         ]}]
-        inputs = self.processor.apply_chat_template(
+        return self.processor.apply_chat_template(
             messages, tokenize=True, add_generation_prompt=True, return_dict=True,
             return_tensors="pt", images_kwargs={"size": {
                 "shortest_edge": self.processor.image_processor.min_pixels,
                 "longest_edge": self.max_pixels,
             }},
-        ).to(self.model.device)
+        )
+
+    def recognize_image(self, image: Image.Image, show_progress=True):
+        import torch
+        from transformers import StoppingCriteriaList
+        image = image.convert("RGB")
+        inputs = self._prepare_inputs(image).to(self.model.device)
         if "pixel_values" not in inputs or "input_ids" not in inputs:
             raise RuntimeError("Processor không trả về pixel_values/input_ids; từ chối suy luận thiếu ảnh.")
         # Move only floating image tensors to the model precision; keep token IDs integral.

@@ -13,7 +13,8 @@ def build_ocr_han_notebook():
     files = ['OCR/han_runner.py', 'OCR/utils/__init__.py', 'OCR/utils/ocr_pipeline.py',
              'OCR/utils/checkpoints.py', 'OCR/utils/export_text.py', 'OCR/utils/page_order.py',
              'OCR/utils/render_pdf.py', 'OCR/utils/notebook_process.py', 'OCR/requirements-han.txt',
-             'OCR/utils/regions.py', 'OCR/utils/resilient_pages.py',
+             'OCR/utils/regions.py', 'OCR/utils/resilient_pages.py', 'OCR/utils/qwen_engine.py',
+             'OCR/requirements-qwen.txt',
              'OCR/assets/han_demo.png', 'OCR/assets/han_demo.txt']
     payload = json.dumps({name: base64.b64encode((ROOT / name).read_bytes()).decode() for name in files}).encode()
     encoded = base64.b64encode(zlib.compress(payload)).decode()
@@ -53,6 +54,9 @@ def build_ocr_han_notebook():
     USE_DEMO_IF_NO_INPUT = True
     USE_GPU = True  # False cho CPU; model thật vẫn nặng và chạy chậm
     MODEL_ID = "PaddlePaddle/PaddleOCR-VL-1.6"
+    # Để thử Qwen, bỏ # dòng dưới và giữ một MODEL_ID có hiệu lực:
+    # MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct"
+    QWEN_LOAD_IN_4BIT = True  # Chỉ áp dụng cho Qwen/CUDA; False dùng FP16/BF16, cần nhiều VRAM hơn
     MODEL_REVISION = None  # Có thể điền commit Hugging Face để tái lập weights
     MAX_NEW_TOKENS = 4096
     REGION_TIMEOUT = 90  # Giới hạn mềm mỗi lần generate; dừng ở bước sinh token kế tiếp
@@ -144,14 +148,32 @@ def build_ocr_han_notebook():
         subprocess.run([str(PYTHON), '-c', 'import torch; print("PyTorch:", torch.__version__)'], check=True)
         subprocess.run([str(PYTHON), '-m', 'pip', 'install', '--disable-pip-version-check',
                         '-r', str(SOURCE_DIR / 'OCR/requirements-han.txt')], env=environment, check=True)
+        model_check = "from OCR.utils.qwen_engine import is_qwen_model; import sys; print(int(is_qwen_model(sys.argv[1])))"
+        using_qwen = subprocess.check_output([str(PYTHON), '-c', model_check, MODEL_ID],
+                                             env=environment, text=True).strip() == '1'
+        if using_qwen and QWEN_LOAD_IN_4BIT:
+            if not USE_GPU:
+                raise ValueError('Qwen 4-bit cần USE_GPU=True; CPU phải đặt QWEN_LOAD_IN_4BIT=False')
+            subprocess.run([str(PYTHON), '-m', 'pip', 'install', '--timeout', '120', '--retries', '5',
+                            '-r', str(SOURCE_DIR / 'OCR/requirements-qwen.txt')], env=environment, check=True)
         preflight = """import torch, transformers
     from transformers import AutoModelForImageTextToText, AutoProcessor
-    from transformers.models.paddleocr_vl.modeling_paddleocr_vl import PaddleOCRVLForConditionalGeneration
+    if __QWEN__:
+        from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLForConditionalGeneration
+    else:
+        from transformers.models.paddleocr_vl.modeling_paddleocr_vl import PaddleOCRVLForConditionalGeneration
     print('Transformers:', transformers.__version__, 'CUDA:', torch.cuda.is_available())
     assert not __GPU__ or torch.cuda.is_available(), 'Bật GPU trong Settings của Kaggle hoặc Runtime của Colab'
     if torch.cuda.is_available():
         print(torch.cuda.get_device_name(0), 'BF16:', torch.cuda.is_bf16_supported())
-    """.replace('__GPU__', repr(USE_GPU))
+    if __QWEN__ and __FOURBIT__:
+        import bitsandbytes as bnb
+        dtype = torch.bfloat16 if torch.cuda.get_device_capability(0)[0] >= 8 and torch.cuda.is_bf16_supported() else torch.float16
+        layer = bnb.nn.Linear4bit(32, 32, bias=False, compute_dtype=dtype, quant_type='nf4').to('cuda')
+        print('NF4 preflight:', layer(torch.zeros(1, 32, device='cuda', dtype=dtype)).shape)
+        del layer
+        torch.cuda.empty_cache()
+    """.replace('__GPU__', repr(USE_GPU)).replace('__QWEN__', repr(using_qwen)).replace('__FOURBIT__', repr(QWEN_LOAD_IN_4BIT))
         subprocess.run([str(PYTHON), '-c', preflight], env=environment, check=True)
     else:
         print('SMOKE: bỏ qua cài đặt và model. Không phải kiểm chứng inference GPU.')
@@ -171,6 +193,7 @@ def build_ocr_han_notebook():
         raise ValueError(f'START_PAGE/END_PAGE không hợp lệ; tài liệu có {total_pages} trang')
     config = dict(input_path=str(input_file), start_page=START_PAGE, end_page=end_page,
                   model_id=MODEL_ID, model_revision=MODEL_REVISION, use_gpu=USE_GPU,
+                  qwen_load_in_4bit=QWEN_LOAD_IN_4BIT,
                   max_new_tokens=MAX_NEW_TOKENS, max_pixels=MAX_PIXELS, render_scale=RENDER_SCALE,
                   region_timeout=REGION_TIMEOUT, page_timeout=PAGE_TIMEOUT,
                   continue_on_error=CONTINUE_ON_ERROR,
@@ -222,6 +245,13 @@ def build_ocr_han_notebook():
     ''')
     cell('markdown', '''
     ## Nếu gặp lỗi
+    - Chọn model ở cell 1: mặc định PaddleOCR-VL-1.6; bỏ comment dòng
+      `MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct"` để dùng Qwen. Chạy lại từ cell 4 sau khi đổi model.
+    - Qwen 8B mặc định nạp NF4 4-bit để giảm VRAM; vẫn cần GPU và tải weights lớn.
+      `QWEN_LOAD_IN_4BIT=False` dùng FP16/BF16, riêng weights 8B đã khoảng 16 GB,
+      chưa tính ảnh/KV cache. CPU dùng FP32 rất nặng. Chưa xác nhận inference Qwen 8B trên GPU thật.
+    - Qwen dùng prompt chép nguyên văn, giữ phồn thể, đọc cột phải sang trái;
+      vẫn có thể thêm/sai/mất chữ. Cache tách theo model và 4-bit, không xóa cache cũ.
     - Cell 6 hiển thị trực tiếp stdout/stderr của worker và lưu toàn bộ vào `WORK_DIR/ocr_run.log`.
       Khi lỗi, đọc traceback gốc/cuối log trong RuntimeError, không chỉ mã thoát tiến trình.
     - Thiếu GPU: bật GPU và chạy lại. T4/P100 dùng FP16; GPU hỗ trợ BF16 mới dùng BF16.
