@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from .db import engine, Base, get_db
 from .models import Project
-from .routers import projects, segments, alignments, quality, suggestions, exports
+from .routers import projects, segments, alignments, quality, suggestions, exports, workspace
 from .services.quality import get_project_statistics
 
 # Create tables
@@ -46,6 +46,7 @@ app.include_router(alignments.router)
 app.include_router(quality.router)
 app.include_router(suggestions.router)
 app.include_router(exports.router)
+app.include_router(workspace.router)
 
 @app.get("/")
 def index_page(request: Request, db: Session = Depends(get_db)):

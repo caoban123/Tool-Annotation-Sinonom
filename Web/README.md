@@ -45,6 +45,11 @@ Mở trình duyệt tại: **http://127.0.0.1:8000**
   Enter/Space chọn thẻ, modal hỗ trợ Tab/Shift+Tab/Esc và trả focus khi đóng.
   Nhấp đúp ô Hán/Việt hoặc focus ô rồi nhấn F2 để mở chỉnh sửa; bấm Lưu Thay Đổi
   để lưu, Hủy/Esc để đóng. Nhấp đúp giữ lựa chọn dóng hàng trước đó.
+  Mỗi cột hiển thị tối đa 100 ô để làm việc với sách lớn: dùng Trước/Sau hoặc nhập
+  số ô `#` và bấm Đến. Lựa chọn được giữ giữa các trang; tìm kiếm vẫn xét toàn bộ
+  tài liệu. Tới ô chưa gán và liên kết từ QA tự mở đúng trang chứa ô đó.
+  Xác nhận/hoàn tác cập nhật phần vừa thay đổi sau khi server lưu thành công.
+  Bấm Tải lại dữ liệu để lấy thay đổi từ tab khác. Xem [đo hiệu năng](PERFORMANCE.md).
 
 ### Database và migration
 

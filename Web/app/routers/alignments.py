@@ -8,10 +8,11 @@ from ..services.alignment import create_alignment, undo_last_alignment, confirm_
 
 router = APIRouter(prefix="/api/alignments", tags=["alignments"])
 
-def _format_alignment_out(db: Session, align: Alignment) -> AlignmentOut:
-    members = db.query(AlignmentMember, Segment).join(Segment).filter(
-        AlignmentMember.alignment_id == align.id
-    ).order_by(AlignmentMember.side, AlignmentMember.position).all()
+def _format_alignment_out(db: Session, align: Alignment, members=None) -> AlignmentOut:
+    if members is None:
+        members = db.query(AlignmentMember, Segment).join(Segment).filter(
+            AlignmentMember.alignment_id == align.id
+        ).order_by(AlignmentMember.side, AlignmentMember.position).all()
 
     han_outs = [
         SegmentOut(
@@ -69,7 +70,14 @@ def list_alignments(
     if status:
         query = query.filter(Alignment.status == status)
     alignments = query.order_by(Alignment.created_at.asc()).all()
-    return [_format_alignment_out(db, a) for a in alignments]
+    grouped = {}
+    rows = db.query(AlignmentMember, Segment).join(Segment).join(
+        Alignment, Alignment.id == AlignmentMember.alignment_id).filter(Alignment.project_id == project_id)
+    if status:
+        rows = rows.filter(Alignment.status == status)
+    for member, segment in rows.order_by(AlignmentMember.side, AlignmentMember.position):
+        grouped.setdefault(member.alignment_id, []).append((member, segment))
+    return [_format_alignment_out(db, a, grouped.get(a.id, [])) for a in alignments]
 
 @router.post("", response_model=AlignmentOut)
 def create_new_alignment(payload: AlignmentCreateRequest, db: Session = Depends(get_db)):

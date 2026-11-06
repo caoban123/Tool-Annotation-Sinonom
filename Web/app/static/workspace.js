@@ -9,6 +9,82 @@ let selectedHan = new Set();
 let selectedViet = new Set();
 let currentFilter = 'all';
 let searchQuery = '';
+let segmentById = new Map();
+let segmentPosition = new Map();
+let membershipBySegment = new Map();
+let paintedSelection = new Set();
+let mutationInFlight = false;
+let workspaceLoadVersion = 0;
+const PAGE_SIZE = 100;
+const sidePage = {han: 0, viet: 0};
+const qaTargetIds = new Set();
+
+function rebuildWorkspaceIndex() {
+  segmentById = new Map();
+  segmentPosition = new Map();
+  for (const segments of [hanSegments, vietSegments]) segments.forEach((seg, index) => {
+    segmentById.set(seg.id, seg); segmentPosition.set(seg.id, index);
+  });
+  for (const selected of [selectedHan, selectedViet]) {
+    for (const id of selected) if (!segmentById.has(id)) selected.delete(id);
+  }
+  membershipBySegment = new Map();
+  for (const pair of alignments) indexPair(pair);
+}
+
+function indexPair(pair) {
+  for (const seg of pair.han_segments.concat(pair.viet_segments)) {
+    if (!membershipBySegment.has(seg.id)) membershipBySegment.set(seg.id, new Map());
+    membershipBySegment.get(seg.id).set(pair.id, pair.status);
+  }
+}
+
+function updateAlignmentProgress() {
+  const el = document.getElementById('alignProgressText');
+  if (el) el.innerText = `Đã xác nhận: ${alignments.filter(a => a.status === 'confirmed').length} cặp`;
+}
+
+function applyAlignmentDelta(pair, removedId = null) {
+  const id = removedId || pair.id;
+  const previous = alignments.find(a => a.id === id);
+  if (removedId && !previous) return false;
+  const affected = new Set();
+  if (previous) for (const seg of previous.han_segments.concat(previous.viet_segments)) {
+    affected.add(seg.id); membershipBySegment.get(seg.id)?.delete(id);
+  }
+  alignments = alignments.filter(a => a.id !== id);
+  if (pair) {
+    const compact = {id: pair.id, status: pair.status,
+      han_segments: pair.han_segments.map(s => ({id: s.id})),
+      viet_segments: pair.viet_segments.map(s => ({id: s.id}))};
+    alignments.push(compact); indexPair(compact);
+    for (const updated of pair.han_segments.concat(pair.viet_segments)) {
+      affected.add(updated.id);
+      // The mutation response includes the current text/revision of each member.
+      const existing = segmentById.get(updated.id);
+      if (existing) Object.assign(existing, updated);
+    }
+  }
+  const priority = {confirmed: 4, needs_review: 3, suggested: 2, draft: 1};
+  for (const segmentId of affected) {
+    const seg = segmentById.get(segmentId);
+    if (!seg) continue;
+    seg.alignment_id = null; seg.alignment_status = 'unassigned';
+    for (const [alignmentId, status] of membershipBySegment.get(segmentId) || []) {
+      if ((priority[status] || 0) > (priority[seg.alignment_status] || 0)) {
+        seg.alignment_id = alignmentId; seg.alignment_status = status;
+      }
+    }
+  }
+  if (currentFilter !== 'all' || searchQuery) renderColumns();
+  else for (const segmentId of affected) {
+    const seg = segmentById.get(segmentId), card = document.getElementById(`card_${segmentId}`);
+    if (seg && card) card.replaceWith(createSegmentCard(seg.language, seg,
+      seg.language === 'han' ? selectedHan : selectedViet));
+  }
+  refreshSelectionCards(); updateSelectionPreview(); updateAlignmentProgress();
+  return true;
+}
 
 // Load initial data
 document.addEventListener('DOMContentLoaded', () => {
@@ -19,36 +95,33 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function loadWorkspaceData() {
+  const version = ++workspaceLoadVersion;
   try {
     showSaveStatus('Đang tải...', 'amber');
-    const [segRes, alignRes] = await Promise.all([
-      fetch(`/api/segments?project_id=${projectId}`),
-      fetch(`/api/alignments?project_id=${projectId}`)
-    ]);
-
-    if (!segRes.ok || !alignRes.ok) throw new Error('Không thể tải dữ liệu workspace');
-
-    const allSegs = await segRes.json();
-    alignments = await alignRes.json();
+    const response = await fetch(`/api/workspace/${projectId}`);
+    if (!response.ok) throw new Error('Không thể tải dữ liệu workspace');
+    const snapshot = await response.json();
+    if (version !== workspaceLoadVersion) return;
+    const allSegs = snapshot.segments;
+    alignments = snapshot.alignments;
 
     hanSegments = allSegs.filter(s => s.language === 'han');
     vietSegments = allSegs.filter(s => s.language === 'viet');
+    rebuildWorkspaceIndex();
 
     const hanCountEl = document.getElementById('hanCount');
     const vietCountEl = document.getElementById('vietCount');
     if (hanCountEl) hanCountEl.innerText = `(${hanSegments.length})`;
     if (vietCountEl) vietCountEl.innerText = `(${vietSegments.length})`;
 
-    const progressEl = document.getElementById('alignProgressText');
-    if (progressEl) {
-      progressEl.innerText = `Đã xác nhận: ${alignments.filter(a => a.status === "confirmed").length} cặp`;
-    }
+    updateAlignmentProgress();
 
     renderColumns();
     updateSelectionPreview();
     applyQaTarget();
     showSaveStatus('Đã lưu DB', 'emerald');
   } catch (err) {
+    if (version !== workspaceLoadVersion) return;
     showSaveStatus('Lỗi tải', 'rose');
     console.error(err);
     if (window.showToast) window.showToast(err.message, 'error');
@@ -70,6 +143,7 @@ function showSaveStatus(text, color) {
 
 function setFilter(filter) {
   currentFilter = filter;
+  sidePage.han = sidePage.viet = 0;
   document.querySelectorAll('.filter-btn').forEach(b => {
     b.classList.remove('bg-white', 'text-slate-900', 'shadow-xs', 'font-semibold');
     b.classList.add('text-slate-600');
@@ -85,13 +159,16 @@ function setFilter(filter) {
 function setupSearch() {
   const input = document.getElementById('searchInput');
   const clearBtn = document.getElementById('clearSearchBtn');
+  let searchTimer;
   if (input) {
     input.addEventListener('input', (e) => {
+      clearTimeout(searchTimer);
       searchQuery = e.target.value.toLowerCase().trim();
       if (clearBtn) {
         clearBtn.classList.toggle('hidden', searchQuery.length === 0);
       }
-      renderColumns();
+      sidePage.han = sidePage.viet = 0;
+      searchTimer = setTimeout(renderColumns, 150);
     });
   }
 }
@@ -102,6 +179,7 @@ function clearSearch() {
   if (input) input.value = '';
   if (clearBtn) clearBtn.classList.add('hidden');
   searchQuery = '';
+  sidePage.han = sidePage.viet = 0;
   renderColumns();
 }
 
@@ -109,6 +187,7 @@ function renderColumns() {
   const scrolls = ['hanColumn','vietColumn'].map(id=>document.getElementById(id).scrollTop);
   renderSide('han', hanSegments, document.getElementById('hanColumn'), selectedHan);
   renderSide('viet', vietSegments, document.getElementById('vietColumn'), selectedViet);
+  paintedSelection = new Set([...selectedHan, ...selectedViet]);
   ['hanColumn','vietColumn'].forEach((id,index)=>document.getElementById(id).scrollTop=scrolls[index]);
   if(window.pendingCardFocus && !document.querySelector('[role=dialog]:not(.hidden)')){document.getElementById(window.pendingCardFocus)?.focus({preventScroll:true});window.pendingCardFocus=null;}
 
@@ -133,23 +212,20 @@ function segmentCardClasses(side, seg, isSelected) {
 }
 
 function refreshSelectionCards() {
-  for (const [side, segments, selected] of [['han', hanSegments, selectedHan], ['viet', vietSegments, selectedViet]]) {
-    for (const seg of segments) {
-      const card = document.getElementById(`card_${seg.id}`);
-      if (!card) continue;
-      const highlighted = card.classList.contains('qa-target');
-      card.className = segmentCardClasses(side, seg, selected.has(seg.id));
-      if (highlighted) card.classList.add('qa-target');
-      card.dataset.selected = String(selected.has(seg.id));
-    }
+  const selected = new Set([...selectedHan, ...selectedViet]);
+  for (const id of new Set([...paintedSelection, ...selected])) {
+    const seg = segmentById.get(id), card = document.getElementById(`card_${id}`);
+    if (!seg || !card) continue;
+    const highlighted = card.classList.contains('qa-target');
+    card.className = segmentCardClasses(seg.language, seg, selected.has(id));
+    if (highlighted) card.classList.add('qa-target');
+    card.dataset.selected = String(selected.has(id));
   }
+  paintedSelection = selected;
 }
 
-function renderSide(side, segments, container, selectedSet) {
-  if (!container) return;
-  container.innerHTML = '';
-
-  const filtered = segments.filter(seg => {
+function filteredSegments(side) {
+  return (side === 'han' ? hanSegments : vietSegments).filter(seg => {
     // Filter by alignment status
     if (currentFilter !== 'all') {
       if (seg.alignment_status !== currentFilter) return false;
@@ -162,6 +238,63 @@ function renderSide(side, segments, container, selectedSet) {
     }
     return true;
   });
+}
+
+function renderPager(side, total) {
+  const pager = document.getElementById(`${side}Pager`);
+  if (!pager) return;
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  sidePage[side] = Math.min(sidePage[side], pages - 1);
+  pager.replaceChildren();
+  const prev = document.createElement('button'); prev.textContent = 'Trước'; prev.disabled = sidePage[side] === 0;
+  const next = document.createElement('button'); next.textContent = 'Sau'; next.disabled = sidePage[side] + 1 >= pages;
+  prev.onclick = () => changeSidePage(side, -1); next.onclick = () => changeSidePage(side, 1);
+  const label = document.createElement('span');
+  label.textContent = total ? `${sidePage[side] * PAGE_SIZE + 1}–${Math.min(total, (sidePage[side] + 1) * PAGE_SIZE)} / ${total} ô` : '0 ô';
+  const form = document.createElement('form');
+  const input = document.createElement('input'); input.type = 'number'; input.min = '0'; input.placeholder = 'Số ô #';
+  input.setAttribute('aria-label', `Đi tới số ô ${side === 'han' ? 'Hán' : 'Việt'}`);
+  const go = document.createElement('button'); go.textContent = 'Đến'; go.type = 'submit';
+  form.append(input, go);
+  form.onsubmit = event => {
+    event.preventDefault();
+    if (input.value === '') return;
+    const segment = (side === 'han' ? hanSegments : vietSegments).find(s => s.order_index === Number(input.value));
+    if (segment) revealSegment(segment.id);
+    else window.showToast?.('Không tìm thấy số ô này', 'warning');
+  };
+  pager.append(prev, label, next, form);
+}
+
+function changeSidePage(side, delta) {
+  const count = filteredSegments(side).length;
+  sidePage[side] = Math.max(0, Math.min(Math.max(0, Math.ceil(count / PAGE_SIZE) - 1), sidePage[side] + delta));
+  renderSide(side, side === 'han' ? hanSegments : vietSegments,
+    document.getElementById(`${side}Column`), side === 'han' ? selectedHan : selectedViet);
+  document.getElementById(`${side}Column`).scrollTop = 0;
+}
+
+function revealSegment(id) {
+  const seg = segmentById.get(id);
+  if (!seg) return false;
+  let filtered = filteredSegments(seg.language);
+  if (!filtered.some(s => s.id === id)) {
+    clearSearch(); setFilter('all');
+    filtered = filteredSegments(seg.language);
+  }
+  sidePage[seg.language] = Math.floor(filtered.findIndex(s => s.id === id) / PAGE_SIZE);
+  renderSide(seg.language, seg.language === 'han' ? hanSegments : vietSegments,
+    document.getElementById(`${seg.language}Column`), seg.language === 'han' ? selectedHan : selectedViet);
+  const card = document.getElementById(`card_${id}`);
+  card?.scrollIntoView({block: 'center'}); card?.focus({preventScroll: true});
+  return !!card;
+}
+
+function renderSide(side, segments, container, selectedSet) {
+  if (!container) return;
+  container.innerHTML = '';
+  const filtered = filteredSegments(side);
+  renderPager(side, filtered.length);
 
   if (filtered.length === 0) {
     container.innerHTML = `
@@ -172,7 +305,14 @@ function renderSide(side, segments, container, selectedSet) {
     return;
   }
 
-  filtered.forEach(seg => {
+  const fragment = document.createDocumentFragment();
+  filtered.slice(sidePage[side] * PAGE_SIZE, (sidePage[side] + 1) * PAGE_SIZE).forEach(seg => {
+    fragment.appendChild(createSegmentCard(side, seg, selectedSet));
+  });
+  container.appendChild(fragment);
+}
+
+function createSegmentCard(side, seg, selectedSet) {
     const isSelected = selectedSet.has(seg.id);
     const card = document.createElement('div');
 
@@ -276,8 +416,8 @@ function renderSide(side, segments, container, selectedSet) {
       </div>
     `;
 
-    container.appendChild(card);
-  });
+    if (qaTargetIds.has(seg.id)) card.classList.add('qa-target');
+    return card;
 }
 
 function getStatusBadge(status) {
@@ -296,16 +436,13 @@ function handleSegmentClick(side, segment, isShift) {
   const segmentsList = side === 'han' ? hanSegments : vietSegments;
 
   if (isShift && selectedSet.size > 0) {
-    const selectedIndices = Array.from(selectedSet).map(id => segmentsList.find(s => s.id === id).order_index);
-    const minIdx = Math.min(...selectedIndices);
-    const maxIdx = Math.max(...selectedIndices);
-    const targetIdx = segment.order_index;
-
-    const rangeStart = Math.min(minIdx, targetIdx);
-    const rangeEnd = Math.max(maxIdx, targetIdx);
-
+    let rangeStart = segmentPosition.get(segment.id), rangeEnd = rangeStart;
+    for (const id of selectedSet) {
+      const index = segmentPosition.get(id);
+      if (index !== undefined) {rangeStart = Math.min(rangeStart, index); rangeEnd = Math.max(rangeEnd, index);}
+    }
     for (let i = rangeStart; i <= rangeEnd; i++) {
-      const s = segmentsList.find(seg => seg.order_index === i);
+      const s = segmentsList[i];
       if (s) selectedSet.add(s.id);
     }
   } else {
@@ -321,8 +458,8 @@ function handleSegmentClick(side, segment, isShift) {
 }
 
 function updateSelectionPreview() {
-  const hanSelectedSegs = hanSegments.filter(s => selectedHan.has(s.id)).sort((a,b) => a.order_index - b.order_index);
-  const vietSelectedSegs = vietSegments.filter(s => selectedViet.has(s.id)).sort((a,b) => a.order_index - b.order_index);
+  const hanSelectedSegs = [...selectedHan].map(id => segmentById.get(id)).filter(Boolean).sort((a,b) => a.order_index - b.order_index);
+  const vietSelectedSegs = [...selectedViet].map(id => segmentById.get(id)).filter(Boolean).sort((a,b) => a.order_index - b.order_index);
 
   const numHan = hanSelectedSegs.length;
   const numViet = vietSelectedSegs.length;
@@ -394,7 +531,7 @@ function updateSelectionPreview() {
   }
 
   if (preview) preview.innerHTML = previewHtml;
-  if (btn) btn.disabled = (!isValid || selectedWithAlign.length > 0);
+  if (btn) btn.disabled = (mutationInFlight || !isValid || selectedWithAlign.length > 0);
 }
 
 function checkContiguity(segs) {
@@ -408,7 +545,7 @@ function checkContiguity(segs) {
 function clearSelection() {
   selectedHan.clear();
   selectedViet.clear();
-  renderColumns();
+  refreshSelectionCards();
   updateSelectionPreview();
 }
 
@@ -420,6 +557,7 @@ function jumpToNextUnassigned(side) {
     return;
   }
 
+  revealSegment(unassigned.id);
   const card = document.getElementById(`card_${unassigned.id}`);
   if (card) {
     card.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -431,9 +569,11 @@ function jumpToNextUnassigned(side) {
 }
 
 async function confirmAlignment() {
-  if (selectedHan.size === 0 || selectedViet.size === 0) return;
+  if (mutationInFlight || selectedHan.size === 0 || selectedViet.size === 0) return;
   const hanIds = Array.from(selectedHan);
   const vietIds = Array.from(selectedViet);
+  mutationInFlight = true;
+  updateSelectionPreview();
 
   try {
     showSaveStatus('Đang lưu...', 'amber');
@@ -455,17 +595,25 @@ async function confirmAlignment() {
     }
 
     const data = await res.json();
-    clearSelection();
-    await loadWorkspaceData();
+    hanIds.forEach(id => selectedHan.delete(id));
+    vietIds.forEach(id => selectedViet.delete(id));
+    applyAlignmentDelta(data);
+    showSaveStatus('Đã lưu DB', 'emerald');
     if (window.showToast) window.showToast(`Đã dóng cặp ${data.alignment_type} thành công!`, 'success');
   } catch (err) {
     if (window.showToast) window.showToast(err.message, 'error');
     else alert(err.message);
     showSaveStatus('Lỗi lưu', 'rose');
+  } finally {
+    mutationInFlight = false;
+    updateSelectionPreview();
   }
 }
 
 async function undoAlignment() {
+  if (mutationInFlight) return;
+  mutationInFlight = true;
+  updateSelectionPreview();
   try {
     showSaveStatus('Đang hoàn tác...', 'amber');
     const res = await fetch('/api/alignments/undo', {
@@ -477,12 +625,17 @@ async function undoAlignment() {
       const err = await res.json();
       throw new Error(err.detail || 'Không thể hoàn tác');
     }
-    await loadWorkspaceData();
+    const result = await res.json();
+    if (!applyAlignmentDelta(null, result.undone_alignment_id)) await loadWorkspaceData();
+    showSaveStatus('Đã lưu DB', 'emerald');
     if (window.showToast) window.showToast('Đã hoàn tác cặp dóng gần nhất', 'info');
   } catch (err) {
     if (window.showToast) window.showToast(err.message, 'error');
     else alert(err.message);
-    showSaveStatus('Đã lưu', 'emerald');
+    showSaveStatus('Lỗi hoàn tác', 'rose');
+  } finally {
+    mutationInFlight = false;
+    updateSelectionPreview();
   }
 }
 
@@ -492,7 +645,7 @@ async function deleteAlignment(alignId) {
     showSaveStatus('Đang hủy dóng...', 'amber');
     const res = await fetch(`/api/alignments/${alignId}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('Không thể hủy xác nhận cặp dóng hàng');
-    await loadWorkspaceData();
+    if (!applyAlignmentDelta(null, alignId)) await loadWorkspaceData();
     if (window.showToast) window.showToast('Đã hủy xác nhận dóng hàng', 'info');
     showSaveStatus('Đã hủy dóng', 'emerald');
   } catch (err) {
@@ -527,7 +680,7 @@ async function unconfirmSelected() {
 }
 
 async function deleteSegment(segId) {
-  const seg = [...hanSegments, ...vietSegments].find(s => s.id === segId);
+  const seg = segmentById.get(segId);
   if (!seg) return;
 
   const previewText = seg.clean_text.length > 40 ? seg.clean_text.substring(0, 40) + '...' : seg.clean_text;
@@ -589,7 +742,7 @@ function setupKeyboardShortcuts() {
 
 // Edit Segment
 function openEditModal(segId) {
-  const seg = [...hanSegments, ...vietSegments].find(s => s.id === segId);
+  const seg = segmentById.get(segId);
   if (!seg) return;
   document.getElementById('edit_seg_id').value = seg.id;
   document.getElementById('edit_seg_text').value = seg.clean_text;
@@ -619,7 +772,7 @@ async function submitEditSegment() {
 
 // Split Segment
 function openSplitModal(segId) {
-  const seg = [...hanSegments, ...vietSegments].find(s => s.id === segId);
+  const seg = segmentById.get(segId);
   if (!seg) return;
   document.getElementById('split_seg_id').value = seg.id;
   document.getElementById('split_seg_texts').value = seg.clean_text;
@@ -720,13 +873,29 @@ function escapeHtml(text) {
 
 let qaTargetApplied=false;
 function applyQaTarget(){
-  if(qaTargetApplied)return;
-  const query=new URLSearchParams(location.search);const segment=query.get('segment'),alignmentId=query.get('alignment');
-  if(!segment&&!alignmentId)return;qaTargetApplied=true;
-  const pair=alignments.find(a=>a.id===alignmentId);
-  const ids=segment?[segment]:pair?pair.han_segments.concat(pair.viet_segments).map(s=>s.id):[];
-  for(const id of ids){const card=document.getElementById(`card_${id}`);if(card){card.classList.add('qa-target');card.scrollIntoView({block:'center'});card.focus({preventScroll:true});}}
-  if(!ids.some(id=>document.getElementById(`card_${id}`)))showToast('Không còn phân đoạn active tại vị trí này','warning');
+  if (qaTargetApplied) return;
+  const query = new URLSearchParams(location.search), segment = query.get('segment'), alignmentId = query.get('alignment');
+  if (!segment && !alignmentId) return;
+  qaTargetApplied = true;
+  const pair = alignments.find(a => a.id === alignmentId);
+  const ids = segment ? [segment] : pair ? pair.han_segments.concat(pair.viet_segments).map(s => s.id) : [];
+  const sides = new Set();
+  for (const id of ids) {
+    const seg = segmentById.get(id);
+    if (!seg) continue;
+    qaTargetIds.add(id);
+    if (!sides.has(seg.language)) {
+      const index = filteredSegments(seg.language).findIndex(s => s.id === id);
+      sidePage[seg.language] = Math.max(0, Math.floor(index / PAGE_SIZE));
+      sides.add(seg.language);
+    }
+  }
+  renderColumns();
+  for (const id of ids) {
+    const card = document.getElementById(`card_${id}`);
+    if (card) {card.scrollIntoView({block: 'center'}); card.focus({preventScroll: true});}
+  }
+  if (!sides.size) showToast('Không còn phân đoạn active tại vị trí này', 'warning');
 }
 async function reviewSuggestion(id,accept){try{await appRequest(`/api/suggestions/${id}/${accept?'accept':'reject'}`,{method:'POST'});await loadWorkspaceData();}catch(error){showToast(error.message,'error');}}
 async function reconfirmPair(id){try{await appRequest(`/api/alignments/${id}/confirm`,{method:'POST'});await loadWorkspaceData();}catch(error){showToast(error.message,'error');}}
