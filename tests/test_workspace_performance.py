@@ -248,3 +248,61 @@ def test_25000_segments_keep_dom_bounded(browser_workspace):
     expect(page.locator('#card_viet_23478')).to_be_focused()
     assert page.locator('.segment-card').count() <= 200
     page.close()
+
+
+def test_native_click_feedback_with_normal_motion(browser_workspace):
+    from playwright.sync_api import expect
+    browser, base, client, factory = browser_workspace
+    seed_workspace(factory, han_count=2213, viet_count=23479)
+    page = browser.new_page(viewport=dict(width=1366, height=900), reduced_motion='no-preference')
+    page.goto(base + '/workspace/perf')
+    expect(page.locator('#saveStatus')).to_have_text('Đã lưu DB', timeout=30000)
+    page.evaluate("""() => {
+      window.clickFeedback = [];
+      window.originalCard = document.getElementById('card_han_0');
+      document.addEventListener('click', event => {
+        const card = event.target.closest('.segment-card');
+        if (!card) return;
+        const start = performance.now();
+        const sample = {id:card.id};
+        clickFeedback.push(sample);
+        requestAnimationFrame(() => {
+          sample.frame_ms = performance.now() - start;
+          sample.selected = card.dataset.selected;
+          sample.duration = getComputedStyle(card).transitionDuration;
+          sample.animations = card.getAnimations().map(a => ({
+            property:a.transitionProperty, duration:a.effect.getTiming().duration}));
+        });
+      }, true);
+    }""")
+    page.locator('#card_han_0 .segment-text').click()
+    expect(page.locator('#card_han_0')).to_have_attribute('data-selected', 'true')
+    page.wait_for_function('clickFeedback.length && clickFeedback[0].duration !== undefined')
+    sample = page.evaluate('clickFeedback[0]')
+    destination = Path('artifacts/workspace-performance/native-click.json')
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(sample, indent=2), encoding='utf-8')
+    assert sample['selected'] == 'true'
+    assert sample['duration'] == '0s'
+    assert sample['animations'] == []
+    assert page.evaluate("originalCard === document.getElementById('card_han_0')")
+    # Choosing another card must not rewrite the previously selected card.
+    page.evaluate("""() => {
+      window.previousCardChanges = [];
+      window.selectionObserver = new MutationObserver(changes => previousCardChanges.push(...changes));
+      selectionObserver.observe(originalCard, {attributes:true});
+    }""")
+    page.locator('#card_viet_0 .segment-text').click()
+    expect(page.locator('#cardinalityBadge')).to_have_text('1–1')
+    assert page.evaluate('previousCardChanges.length') == 0
+    page.evaluate('selectionObserver.disconnect()')
+    # Native double click still restores the selection that preceded editing.
+    page.locator('#card_han_1 .segment-text').dblclick()
+    expect(page.locator('#editSegmentModal')).to_be_visible()
+    assert page.evaluate('[...selectedHan]') == ['han_0']
+    page.keyboard.press('Escape')
+    expect(page.locator('#editSegmentModal')).to_be_hidden()
+    page.locator('#card_han_0 .segment-text').click()
+    expect(page.locator('#card_han_0')).to_have_attribute('data-selected', 'false')
+    assert page.evaluate('selectedViet.has("viet_0")')
+    page.close()

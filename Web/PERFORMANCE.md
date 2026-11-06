@@ -45,3 +45,18 @@ $env:DATABASE_URL='sqlite:///D:/tool-dong-hang/artifacts/workspace-performance/t
 vào `artifacts/workspace-performance/baseline.js` (UTF-8) trước khi chạy.
 Các số đo máy hiện tại được ghi tại `artifacts/workspace-performance/timings.json`.
 Kết quả có thể khác giữa các lần chạy do CPU, cache, font và tải hệ thống.
+
+## Phản hồi khi nhấp ô
+
+Kiểm tra bổ sung bằng click thật trong Chrome ở chế độ chuyển động bình thường,
+với 25.692 ô: trước sửa, trạng thái chọn đã cập nhật ở callback khung hình kế tiếp
+(khoảng 4 ms trong lượt đo), nhưng màu nền, viền và bóng tiếp tục transition 150 ms.
+Bỏ transition trên thẻ để trạng thái chọn/bỏ chọn hiển thị ngay; giữ nguyên nhấp đúp
+để sửa và thao tác bàn phím. Các thẻ có trạng thái chọn không đổi không bị ghi lại
+thuộc tính CSS khi chọn thêm ô khác.
+
+Test `test_native_click_feedback_with_normal_motion` kiểm tra không có transition
+đang chạy sau click, giữ nguyên DOM của thẻ, không ghi lại thẻ đã chọn khác và
+khôi phục lựa chọn sau nhấp đúp. Số đo khung hình được ghi vào
+`artifacts/workspace-performance/native-click.json`; đây là thời gian tới callback
+requestAnimationFrame, không phải phép đo độ trễ màn hình vật lý.

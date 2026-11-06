@@ -194,7 +194,9 @@ function renderColumns() {
 }
 
 function segmentCardClasses(side, seg, isSelected) {
-  let classes = 'rounded-xl border transition-all duration-150 cursor-pointer select-none relative group ';
+  // Selection is immediate: animating the border/background/shadow makes
+  // every click feel delayed even when the handler finishes in one frame.
+  let classes = 'rounded-xl border cursor-pointer select-none relative group ';
   if (isSelected) {
     classes += side === 'han'
       ? 'border-sky-500 bg-sky-50/90 ring-2 ring-sky-400 shadow-md p-3.5'
@@ -216,10 +218,12 @@ function refreshSelectionCards() {
   for (const id of new Set([...paintedSelection, ...selected])) {
     const seg = segmentById.get(id), card = document.getElementById(`card_${id}`);
     if (!seg || !card) continue;
+    const selectedValue = String(selected.has(id));
+    if (card.dataset.selected === selectedValue) continue;
     const highlighted = card.classList.contains('qa-target');
     card.className = segmentCardClasses(seg.language, seg, selected.has(id));
     if (highlighted) card.classList.add('qa-target');
-    card.dataset.selected = String(selected.has(id));
+    card.dataset.selected = selectedValue;
   }
   paintedSelection = selected;
 }
