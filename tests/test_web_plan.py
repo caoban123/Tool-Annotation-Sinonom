@@ -402,3 +402,105 @@ def test_delete_dialog_browser_cancel_stale_and_success(web):
         server.should_exit = True
         thread.join(timeout=5)
         sock.close()
+
+
+def test_workspace_double_click_edit_preserves_selection_and_saves(web):
+    import socket
+    import threading
+    import time
+    import uvicorn
+    from playwright.sync_api import sync_playwright, expect
+    client, factory = web
+    project, han, viet, *_ = seed(client)
+    sock = socket.socket()
+    sock.bind(('127.0.0.1', 0))
+    port = sock.getsockname()[1]
+    server = uvicorn.Server(uvicorn.Config(app, log_level='error'))
+    thread = threading.Thread(target=lambda: server.run(sockets=[sock]), daemon=True)
+    thread.start()
+    try:
+        for _ in range(100):
+            if server.started: break
+            time.sleep(.05)
+        assert server.started
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(channel='chrome', headless=True)
+            page = browser.new_page(viewport=dict(width=1366, height=900))
+            page.emulate_media(reduced_motion='reduce')
+            page.route('**/*', lambda route: route.continue_() if route.request.url.startswith(f'http://127.0.0.1:{port}') else route.abort())
+            page.goto(f'http://127.0.0.1:{port}/workspace/{project}')
+            h0, h1 = [page.locator(f'#card_{s["id"]}') for s in han]
+            v0 = page.locator(f'#card_{viet[0]["id"]}')
+            modal = page.locator('#editSegmentModal')
+            editor = page.locator('#edit_seg_text')
+            h0.click()
+            v0.click()
+            expect(h0).to_have_attribute('data-selected', 'true')
+            expect(v0).to_have_attribute('data-selected', 'true')
+            # Real native double-click: two click events must not rebuild the card
+            # or leave an unselected target in the alignment selection.
+            h1.locator('.segment-text').dblclick()
+            expect(modal).to_be_visible()
+            expect(editor).to_be_focused()
+            expect(editor).to_have_value(han[1]['clean_text'])
+            screenshots = Path('artifacts/double-click')
+            screenshots.mkdir(parents=True, exist_ok=True)
+            page.screenshot(path=str(screenshots / 'edit-1366.png'))
+            expect(h0).to_have_attribute('data-selected', 'true')
+            expect(h1).to_have_attribute('data-selected', 'false')
+            expect(v0).to_have_attribute('data-selected', 'true')
+            editor.fill('修訂𠀀。')
+            modal.get_by_role('button', name='Lưu Thay Đổi').click()
+            expect(modal).not_to_be_visible()
+            expect(h1.locator('.segment-text')).to_have_text('修訂𠀀。')
+            rows = client.get('/api/segments', params={'project_id': project}).json()
+            changed = next(s for s in rows if s['id'] == han[1]['id'])
+            assert changed['clean_text'] == '修訂𠀀。' and changed['raw_text'] == han[1]['raw_text']
+            # Double-click an already selected card, then cancel without saving.
+            h0.dblclick()
+            editor.fill('unsaved')
+            page.keyboard.press('Escape')
+            expect(modal).not_to_be_visible()
+            expect(h0).to_be_focused()
+            expect(h0).to_have_attribute('data-selected', 'true')
+            expect(h0.locator('.segment-text')).to_have_text(han[0]['clean_text'])
+            h1.dblclick(modifiers=['Shift'])
+            expect(modal).to_be_visible()
+            modal.get_by_role('button', name='Hủy', exact=True).click()
+            expect(h0).to_have_attribute('data-selected', 'true')
+            expect(h1).to_have_attribute('data-selected', 'false')
+            v0.dblclick()
+            expect(editor).to_have_value(viet[0]['clean_text'])
+            editor.fill('Tiếng Việt: Nguyễn, Trường.')
+            modal.get_by_role('button', name='Lưu Thay Đổi').click()
+            expect(v0.locator('.segment-text')).to_have_text('Tiếng Việt: Nguyễn, Trường.')
+            expect(v0).to_have_attribute('data-selected', 'true')
+            h1.click(modifiers=['Shift'])
+            expect(h1).to_have_attribute('data-selected', 'true')
+            expect(page.locator('#cardinalityBadge')).to_have_text('n–1')
+            h1.focus()
+            page.keyboard.press('Space')
+            expect(h1).to_have_attribute('data-selected', 'false')
+            expect(h1).to_be_focused()
+            page.keyboard.press('F2')
+            expect(editor).to_have_value('修訂𠀀。')
+            page.keyboard.press('Escape')
+            # Double-click on an action is not a card-edit gesture.
+            h1.get_by_role('button', name='Tách', exact=True).dispatch_event('dblclick')
+            expect(modal).not_to_be_visible()
+            # Mobile retains the explicit Edit button.
+            page.set_viewport_size(dict(width=390, height=844))
+            v0.get_by_role('button', name='Sửa', exact=True).click()
+            expect(editor).to_have_value('Tiếng Việt: Nguyễn, Trường.')
+            box = modal.locator(':scope > div').bounding_box()
+            assert box and box['y'] >= 0 and box['y'] + box['height'] <= 844
+            page.screenshot(path=str(screenshots / 'edit-390.png'))
+            page.keyboard.press('Escape')
+            page.reload()
+            expect(h1.locator('.segment-text')).to_have_text('修訂𠀀。')
+            expect(v0.locator('.segment-text')).to_have_text('Tiếng Việt: Nguyễn, Trường.')
+            browser.close()
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5)
+        sock.close()

@@ -43,6 +43,8 @@ Mở trình duyệt tại: **http://127.0.0.1:8000**
   bản đang làm; liên kết xuất có điều kiện yêu cầu checklist đạt. Cả hai có báo cáo.
 - **Workspace**: chế độ gọn/cỡ chữ lưu theo trình duyệt, QA nhảy đúng câu/cặp,
   Enter/Space chọn thẻ, modal hỗ trợ Tab/Shift+Tab/Esc và trả focus khi đóng.
+  Nhấp đúp ô Hán/Việt hoặc focus ô rồi nhấn F2 để mở chỉnh sửa; bấm Lưu Thay Đổi
+  để lưu, Hủy/Esc để đóng. Nhấp đúp giữ lựa chọn dóng hàng trước đó.
 
 ### Database và migration
 

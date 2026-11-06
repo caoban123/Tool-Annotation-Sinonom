@@ -114,6 +114,37 @@ function renderColumns() {
 
 }
 
+function segmentCardClasses(side, seg, isSelected) {
+  let classes = 'rounded-xl border transition-all duration-150 cursor-pointer select-none relative group ';
+  if (isSelected) {
+    classes += side === 'han'
+      ? 'border-sky-500 bg-sky-50/90 ring-2 ring-sky-400 shadow-md p-3.5'
+      : 'border-rose-500 bg-rose-50/90 ring-2 ring-rose-400 shadow-md p-3.5';
+  } else if (seg.alignment_status === 'confirmed') {
+    classes += 'border-emerald-200 bg-emerald-50/30 hover:border-emerald-300 hover:shadow-xs p-3.5';
+  } else if (seg.alignment_status === 'needs_review') {
+    classes += 'border-amber-300 bg-amber-50/30 hover:border-amber-400 hover:shadow-xs p-3.5';
+  } else if (seg.alignment_status === 'suggested') {
+    classes += 'border-purple-200 bg-purple-50/30 hover:border-purple-300 hover:shadow-xs p-3.5';
+  } else {
+    classes += 'border-slate-200 hover:border-slate-300 bg-white hover:shadow-xs p-3.5';
+  }
+  return classes + ' segment-card';
+}
+
+function refreshSelectionCards() {
+  for (const [side, segments, selected] of [['han', hanSegments, selectedHan], ['viet', vietSegments, selectedViet]]) {
+    for (const seg of segments) {
+      const card = document.getElementById(`card_${seg.id}`);
+      if (!card) continue;
+      const highlighted = card.classList.contains('qa-target');
+      card.className = segmentCardClasses(side, seg, selected.has(seg.id));
+      if (highlighted) card.classList.add('qa-target');
+      card.dataset.selected = String(selected.has(seg.id));
+    }
+  }
+}
+
 function renderSide(side, segments, container, selectedSet) {
   if (!container) return;
   container.innerHTML = '';
@@ -147,32 +178,39 @@ function renderSide(side, segments, container, selectedSet) {
 
     const statusBadge = getStatusBadge(seg.alignment_status);
 
-    let cardClasses = 'rounded-xl border transition-all duration-150 cursor-pointer select-none relative group ';
-    if (isSelected) {
-      cardClasses += side === 'han' 
-        ? 'border-sky-500 bg-sky-50/90 ring-2 ring-sky-400 shadow-md p-3.5'
-        : 'border-rose-500 bg-rose-50/90 ring-2 ring-rose-400 shadow-md p-3.5';
-    } else if (seg.alignment_status === 'confirmed') {
-      cardClasses += 'border-emerald-200 bg-emerald-50/30 hover:border-emerald-300 hover:shadow-xs p-3.5';
-    } else if (seg.alignment_status === 'needs_review') {
-      cardClasses += 'border-amber-300 bg-amber-50/30 hover:border-amber-400 hover:shadow-xs p-3.5';
-    } else if (seg.alignment_status === 'suggested') {
-      cardClasses += 'border-purple-200 bg-purple-50/30 hover:border-purple-300 hover:shadow-xs p-3.5';
-    } else {
-      cardClasses += 'border-slate-200 hover:border-slate-300 bg-white hover:shadow-xs p-3.5';
-    }
-
-    card.className = cardClasses + ' segment-card';
+    card.className = segmentCardClasses(side, seg, isSelected);
+    card.dataset.selected = String(isSelected);
     card.tabIndex = 0; card.setAttribute('role','group');
-    card.setAttribute('aria-label', `${side === 'han' ? 'Hán' : 'Việt'} ${seg.order_index}, Enter để chọn`);
-    card.onkeydown = event => {if(event.target===card && ['Enter',' '].includes(event.key)){event.preventDefault();handleSegmentClick(side,seg,event.shiftKey);}};
+    card.setAttribute('aria-label', `${side === 'han' ? 'Hán' : 'Việt'} ${seg.order_index}, Enter để chọn, F2 để sửa`);
+    card.title = 'Nhấp để chọn; nhấp đúp hoặc nhấn F2 để sửa nội dung';
+    card.onkeydown = event => {
+      if (event.target !== card) return;
+      if (['Enter', ' '].includes(event.key)) {event.preventDefault();handleSegmentClick(side,seg,event.shiftKey);}
+      else if (event.key === 'F2') {event.preventDefault();openEditModal(seg.id);}
+    };
     card.id = `card_${seg.id}`;
 
-    // Click handler for multi-select
+    let selectionBeforeClick = null;
+    const isCardAction = target => target.closest('button,a,input,textarea,select,[contenteditable="true"]');
     card.onclick = (e) => {
-      // Ignore if clicking action buttons
-      if (e.target.closest('button,a,input')) return;
+      if (isCardAction(e.target) || e.detail > 1) return;
+      selectionBeforeClick = new Set(selectedSet);
       handleSegmentClick(side, seg, e.shiftKey);
+    };
+    card.ondblclick = (e) => {
+      if (isCardAction(e.target)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      // The first click of a native double click already toggled selection.
+      // Restore the prior set (including Shift ranges) before opening the editor.
+      if (e.detail >= 2 && selectionBeforeClick) {
+        selectedSet.clear();
+        selectionBeforeClick.forEach(id => selectedSet.add(id));
+        refreshSelectionCards();
+        updateSelectionPreview();
+      }
+      card.focus({preventScroll:true});
+      openEditModal(seg.id);
     };
 
     const isHan = (side === 'han');
@@ -278,7 +316,7 @@ function handleSegmentClick(side, segment, isShift) {
     }
   }
 
-  renderColumns();
+  refreshSelectionCards();
   updateSelectionPreview();
 }
 

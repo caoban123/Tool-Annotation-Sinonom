@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import pytest
 import uvicorn
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, expect
 
 from Web.app.main import app
 
@@ -96,21 +96,21 @@ def test_playwright_e2e_workflow(live_server, tmp_path):
 
         # 5. Confirm 1-1 alignment
         btn_confirm.click()
-        page.wait_for_timeout(1000)
+        expect(page.locator('#saveStatus')).to_have_text('Đã lưu DB')
 
         # Verify badge changed to "Đã dóng"
         assert "Đã dóng" in han_locator.nth(0).inner_text()
 
         # 6. Test Undo
         page.locator("button:has-text('Hoàn tác')").click()
-        page.wait_for_timeout(1000)
+        expect(page.locator('#saveStatus')).to_have_text('Đã lưu DB')
         assert "Chưa gán" in han_locator.nth(0).inner_text()
 
         # 7. Re-confirm 1-1
         han_locator.nth(0).click()
         viet_locator.nth(0).click()
         btn_confirm.click()
-        page.wait_for_timeout(1000)
+        expect(page.locator('#saveStatus')).to_have_text('Đã lưu DB')
 
         # 8. Create 1-n alignment: Han[1] and Viet[1], Viet[2]
         han_locator.nth(1).click()
@@ -119,7 +119,7 @@ def test_playwright_e2e_workflow(live_server, tmp_path):
 
         page.wait_for_selector("#cardinalityBadge:has-text('1–n')")
         btn_confirm.click()
-        page.wait_for_timeout(1000)
+        expect(page.locator('#saveStatus')).to_have_text('Đã lưu DB')
 
         # Save screenshot for evidence
         artifacts_dir = Path(__file__).resolve().parent.parent.parent / "artifacts"
