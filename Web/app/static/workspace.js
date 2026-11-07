@@ -13,6 +13,7 @@ let segmentById = new Map();
 let segmentPosition = new Map();
 let membershipBySegment = new Map();
 let paintedSelection = new Set();
+const translationStates = new Map();
 let mutationInFlight = false;
 let workspaceLoadVersion = 0;
 const PAGE_SIZE = 100;
@@ -27,6 +28,10 @@ function rebuildWorkspaceIndex() {
   });
   for (const selected of [selectedHan, selectedViet]) {
     for (const id of selected) if (!segmentById.has(id)) selected.delete(id);
+  }
+  for (const [id, state] of translationStates) {
+    const seg = segmentById.get(id);
+    if (!seg || seg.revision !== state.revision || seg.clean_text !== state.source) translationStates.delete(id);
   }
   membershipBySegment = new Map();
   for (const pair of alignments) indexPair(pair);
@@ -335,7 +340,7 @@ function createSegmentCard(side, seg, selectedSet) {
     card.id = `card_${seg.id}`;
 
     let selectionBeforeClick = null;
-    const isCardAction = target => target.closest('button,a,input,textarea,select,[contenteditable="true"]');
+    const isCardAction = target => target.closest('button,a,input,textarea,select,[contenteditable="true"],[data-card-action]');
     card.onclick = (e) => {
       if (isCardAction(e.target) || e.detail > 1) return;
       selectionBeforeClick = new Set(selectedSet);
@@ -365,6 +370,7 @@ function createSegmentCard(side, seg, selectedSet) {
     card.innerHTML = `
       <div class="flex flex-wrap gap-2 text-xs mb-2">
         <a class="source-ref" href="/source/${projectId}/${side}?page=${encodeURIComponent((seg.page_ref||'').split(',')[0])}#page=${encodeURIComponent((seg.page_ref||'').split(',')[0])}" target="_blank" rel="noopener">Mở nguồn</a>
+        ${isHan ? `<button type="button" class="source-ref" data-translate-button onclick="translateSegment('${seg.id}')" title="Gửi nội dung ô này tới Azure để dịch Hán văn cổ sang tiếng Việt">Dịch tham khảo</button>` : ''}
         ${seg.alignment_status==='suggested'?`<button class="source-ref" onclick="reviewSuggestion('${seg.alignment_id}',true)">Duyệt gợi ý</button><button class="source-ref" onclick="reviewSuggestion('${seg.alignment_id}',false)">Từ chối</button>`:''}
         ${seg.alignment_status==='needs_review'?`<button class="source-ref" onclick="reconfirmPair('${seg.alignment_id}')">Xác nhận lại</button>`:''}
       </div>
@@ -385,6 +391,8 @@ function createSegmentCard(side, seg, selectedSet) {
       <div class="segment-text mt-2.5 ${isHan ? 'font-cjk text-[17px] leading-[1.8] text-slate-900 tracking-wide font-normal' : 'font-sans text-[14px] leading-relaxed text-slate-800 font-normal'}">
         ${escapeHtml(seg.clean_text)}
       </div>
+
+      ${isHan ? '<div class="segment-translation" data-translation-panel data-card-action role="status" aria-live="polite" hidden></div>' : ''}
 
       <!-- Card Action Footer -->
       <div class="mt-3 pt-2 flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-100/70">
@@ -421,7 +429,70 @@ function createSegmentCard(side, seg, selectedSet) {
     `;
 
     if (qaTargetIds.has(seg.id)) card.classList.add('qa-target');
+    if (isHan) renderTranslationState(card, seg);
     return card;
+}
+
+function renderTranslationState(card, seg) {
+  if (!card || !seg) return;
+  let state = translationStates.get(seg.id);
+  if (state && (state.source !== seg.clean_text || state.revision !== seg.revision)) {
+    translationStates.delete(seg.id);
+    state = null;
+  }
+  const button = card.querySelector('[data-translate-button]');
+  const panel = card.querySelector('[data-translation-panel]');
+  if (!button || !panel) return;
+  button.disabled = Boolean(state?.busy);
+  button.textContent = state?.busy ? 'Đang dịch…' : state?.result
+    ? (state.open ? 'Ẩn bản dịch' : 'Xem bản dịch') : state?.error ? 'Thử dịch lại' : 'Dịch tham khảo';
+  panel.hidden = !state?.open;
+  panel.replaceChildren();
+  if (!state?.open) return;
+  const label = document.createElement('strong');
+  label.textContent = 'Bản dịch máy tham khảo · Azure';
+  const body = document.createElement('div');
+  body.className = 'translation-text';
+  body.textContent = state.busy ? 'Đang gửi nội dung ô này để dịch…' : state.error || state.result;
+  panel.append(label, body);
+  if (state.result) {
+    const note = document.createElement('small');
+    note.textContent = (state.cached ? 'Đã lấy từ bản lưu. ' : 'Đã lưu bản dịch. ')
+      + 'Đối chiếu nguyên văn, tên riêng và thuật ngữ trước khi sử dụng.';
+    panel.append(note);
+  }
+}
+
+async function translateSegment(id) {
+  const seg = segmentById.get(id);
+  if (!seg || seg.language !== 'han') return;
+  let state = translationStates.get(id);
+  if (state?.source !== seg.clean_text || state?.revision !== seg.revision) state = null;
+  if (state?.busy) return;
+  if (state?.result) {
+    state.open = !state.open;
+    renderTranslationState(document.getElementById(`card_${id}`), seg);
+    return;
+  }
+  state = {source:seg.clean_text, revision:seg.revision, busy:true, open:true};
+  translationStates.set(id, state);
+  renderTranslationState(document.getElementById(`card_${id}`), seg);
+  try {
+    const response = await fetch(`/api/translations/${encodeURIComponent(projectId)}/${encodeURIComponent(id)}`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({revision:seg.revision})
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Chưa dịch được ô này. Thử lại sau.');
+    const current = segmentById.get(id);
+    if (!current || current.revision !== data.revision || current.clean_text !== data.source_text) return;
+    state.result = data.translated_text;
+    state.cached = data.cached;
+  } catch (error) {
+    state.error = error.message || 'Không kết nối được máy chủ dịch.';
+  } finally {
+    state.busy = false;
+    renderTranslationState(document.getElementById(`card_${id}`), segmentById.get(id));
+  }
 }
 
 function getStatusBadge(status) {

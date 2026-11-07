@@ -1,5 +1,8 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent.parent / '.env', override=False)
 from fastapi import FastAPI, Request, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -8,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from .db import engine, Base, get_db
 from .models import Project
-from .routers import projects, segments, alignments, quality, suggestions, exports, workspace
+from .routers import projects, segments, alignments, quality, suggestions, exports, workspace, translations
 from .services.quality import get_project_statistics
 
 # Create tables
@@ -47,6 +50,7 @@ app.include_router(quality.router)
 app.include_router(suggestions.router)
 app.include_router(exports.router)
 app.include_router(workspace.router)
+app.include_router(translations.router)
 
 @app.get("/")
 def index_page(request: Request, db: Session = Depends(get_db)):

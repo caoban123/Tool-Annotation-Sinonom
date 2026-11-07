@@ -84,6 +84,19 @@ class Segment(Base):
         Index("idx_segment_active", "project_id", "active"),
     )
 
+class SegmentTranslation(Base):
+    __tablename__ = "segment_translations"
+
+    # Content-addressed cache, scoped to a segment so project deletion cascades.
+    id = Column(String(64), primary_key=True)
+    segment_id = Column(String(64), ForeignKey("segments.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_language = Column(String(16), nullable=False, default="lzh")
+    target_language = Column(String(16), nullable=False, default="vi")
+    provider = Column(String(32), nullable=False, default="azure")
+    translated_text = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
 class Alignment(Base):
     __tablename__ = "alignments"
 

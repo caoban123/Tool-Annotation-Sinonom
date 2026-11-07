@@ -8,6 +8,7 @@ pydantic>=2.6.4
 aiofiles>=23.2.1
 requests>=2.31.0
 httpx>=0.27.0
+python-dotenv>=1.0.1
 pytest>=8.1.1
 nbformat>=5.10.3
 nbclient>=0.10.0
