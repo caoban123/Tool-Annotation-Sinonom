@@ -166,6 +166,24 @@ def test_review_rates_use_valid_pairs_once(tmp_path, errors, total, rate):
     engine.dispose()
 
 
+@pytest.mark.parametrize('reverse', [False, True])
+def test_metadata_page_direction(web, reverse):
+    client, factory = web
+    project, han, viet, raw_han, _ = seed(client)
+    numbers = [11, 10] if reverse else [10, 11]
+    metadata = dict(complete=True, reverse_pages=reverse, full_text=raw_han.decode(),
+                    pages=[dict(page_number=n, text=s['clean_text']) for n,s in zip(numbers,han)])
+    response = client.post(f'/api/projects/{project}/metadata/han',
+        files={'file': ('han_metadata.json',json.dumps(metadata).encode())})
+    assert response.status_code == 200, response.text
+    rows = client.get('/api/segments', params={'project_id':project,'language':'han'}).json()
+    assert [s['page_ref'] for s in rows] == list(map(str,numbers))
+    metadata['reverse_pages'] = not reverse
+    response = client.post(f'/api/projects/{project}/metadata/han',
+        files={'file': ('han_metadata.json',json.dumps(metadata).encode())})
+    assert response.status_code == 400
+
+
 def test_raw_snapshot_zip_metadata_and_merged_page_refs(web):
     client, factory = web
     project, han, viet, raw_han, raw_viet = seed(client)

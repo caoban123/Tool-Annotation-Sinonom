@@ -52,6 +52,9 @@ def run(config, engine=None):
     end = config.get('end_page') or count
     if not 1 <= start <= end <= count:
         raise ValueError(f'Khoang trang phai thuoc 1..{count}, nhan {start}..{end}')
+    reverse_pages = config.get('reverse_pages', False)
+    if type(reverse_pages) is not bool:
+        raise ValueError('reverse_pages must be a boolean')
     emit_progress('start', total=end - start + 1)
     if config.get('split_spread', False) and config.get('reading_order', 'rtl_vertical') != 'rtl_vertical':
         raise ValueError('split_spread danh cho sach doc: nua phai truoc nua trai')
@@ -81,7 +84,8 @@ def run(config, engine=None):
                       review_pages=sum(bool(p.get('errors')) for p in pages),
                       error_regions=sum(len(p.get('errors', [])) for p in pages), **values)
     pipeline = None
-    for number in range(start, end + 1):
+    page_numbers = range(end, start - 1, -1) if reverse_pages else range(start, end + 1)
+    for number in page_numbers:
         key = manager.compute_page_key(digest, number, config['model_id'], signature)
         cached = None if config.get('force_reprocess') else manager.get_cached_result(key)
         if cached is not None:
@@ -161,6 +165,7 @@ def run(config, engine=None):
     result = {
         'source_id': path.name, 'source_sha256': digest,
         'start_page': start, 'end_page': end, 'total_pages': len(pages), 'pages': pages,
+        'reverse_pages': reverse_pages,
         'full_text': '\n'.join(p['text'] for p in pages),
         'reading_order': config.get('reading_order', 'rtl_vertical'),
         'engine_info': {'model_name': config['model_id'], 'is_mock': False,

@@ -86,6 +86,34 @@ def test_failed_page_never_cached_or_exported_as_complete(tmp_path):
     assert engine.calls == 3
 
 
+def test_reverse_pages_exports_in_order_and_reuses_forward_cache(tmp_path, monkeypatch):
+    import OCR.viet_runner as runner
+    settings = config(tmp_path)
+    settings['reverse_pages'] = True
+    loaded = []
+    load = runner.load_page
+    def record(path, number, scale):
+        loaded.append(number)
+        return load(path, number, scale)
+    monkeypatch.setattr(runner, 'load_page', record)
+    engine = ContractEngine()
+    reverse = run(settings, engine)
+    assert loaded == [3, 2]
+    assert reverse['reverse_pages'] is True
+    assert [p['page_number'] for p in reverse['pages']] == [3, 2]
+    calls = engine.calls
+    settings['reverse_pages'] = False
+    forward = run(settings, engine)
+    assert engine.calls == calls and loaded == [3, 2]
+    assert all(p['is_cached'] for p in forward['pages'])
+    assert [p['page_number'] for p in forward['pages']] == [2, 3]
+    settings['reverse_pages'] = True
+    resumed = run(settings, engine)
+    with zipfile.ZipFile(Path(settings['output_dir']) / 'viet_ocr.zip') as archive:
+        assert archive.read('viet.txt').decode() == resumed['full_text'] == reverse['full_text']
+        assert [p['page_number'] for p in json.loads(archive.read('viet_metadata.json'))['pages']] == [3, 2]
+
+
 def test_bad_ranges_and_missing_files_fail_before_model(tmp_path):
     settings = config(tmp_path)
     settings['start_page'] = 4
@@ -184,8 +212,8 @@ def test_bundle_matches_current_sources_and_cells_compile():
     notebook = json.loads(Path('OCR/notebooks/02_OCR_Viet.ipynb').read_text(encoding='utf-8'))
     for cell in notebook['cells']:
         if cell['cell_type'] == 'code':
-            compile(cell['source'], '<notebook>', 'exec')
-    source = notebook['cells'][2]['source']
+            compile(''.join(cell['source']), '<notebook>', 'exec')
+    source = ''.join(notebook['cells'][2]['source'])
     encoded = source.split("b64decode('")[1].split("')")[0]
     payload = json.loads(zlib.decompress(base64.b64decode(encoded)))
     assert set(payload) == set(FILES)

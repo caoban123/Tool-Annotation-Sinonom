@@ -67,6 +67,39 @@ def test_runner_cache_changes_with_pixels_and_document(tmp_path):
     assert engine.calls == 3
 
 
+def test_reverse_pages_exports_in_order_and_reuses_forward_cache(tmp_path, monkeypatch):
+    import OCR.han_runner as runner
+    path = tmp_path / 'pages.tiff'
+    Image.new('RGB', (40, 60), 'white').save(path, save_all=True,
+        append_images=[Image.new('RGB', (40, 60), color) for color in ('black', 'red')])
+    config = configuration(tmp_path, path)
+    config.update(start_page=2, end_page=3, reverse_pages=True)
+    loaded = []
+    load = runner.load_page
+    def record(path, number, scale):
+        loaded.append(number)
+        return load(path, number, scale)
+    monkeypatch.setattr(runner, 'load_page', record)
+    engine = RecordingEngine()
+    reverse = run(config, engine)
+    assert loaded == [3, 2]
+    assert reverse['reverse_pages'] is True
+    assert [p['page_number'] for p in reverse['pages']] == [3, 2]
+    assert reverse['full_text'] == '\n'.join(p['text'] for p in reverse['pages'])
+    calls = engine.calls
+    config['reverse_pages'] = False
+    forward = run(config, engine)
+    assert engine.calls == calls and loaded == [3, 2]
+    assert [p['page_number'] for p in forward['pages']] == [2, 3]
+    assert all(p['is_cached'] for p in forward['pages'])
+    assert [p['text'] for p in forward['pages']] == [p['text'] for p in reversed(reverse['pages'])]
+    config['reverse_pages'] = True
+    resumed = run(config, engine)
+    with zipfile.ZipFile(Path(config['output_dir']) / 'han_ocr.zip') as archive:
+        assert archive.read('han.txt').decode() == resumed['full_text'] == reverse['full_text']
+        assert [p['page_number'] for p in json.loads(archive.read('han_metadata.json'))['pages']] == [3, 2]
+
+
 def test_runner_rejects_bad_range_before_model_load(tmp_path):
     config = configuration(tmp_path, Path('tests/fixtures/sample_han_scan.png'))
     config['start_page'] = 21

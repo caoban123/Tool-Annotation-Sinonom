@@ -44,6 +44,23 @@ def configuration(tmp_path, path):
     return dict(input_path=str(path), output_dir=str(tmp_path / 'output'), device='cpu')
 
 
+def test_reverse_mixed_pdf_preserves_original_page_numbers(tmp_path):
+    settings = configuration(tmp_path, mixed_document(tmp_path))
+    settings.update(start_page=1, end_page=2, reverse_pages=True)
+    plan = plan_input(settings)
+    assert [p['page_number'] for p in plan['pages']] == [2, 1]
+    assert [p['method'] for p in plan['pages']] == ['ocr', 'pdf_text']
+    engine = RecordingOCR()
+    result = run(settings, engine)
+    assert [p['page_number'] for p in result['pages']] == [2, 1]
+    assert result['full_text'] == '\n\n'.join(p['text'] for p in result['pages'])
+    assert result['pages'][0]['method'] == 'ocr' and result['pages'][1]['method'] == 'pdf_text'
+    settings['reverse_pages'] = False
+    forward = run(settings, engine)
+    assert [p['page_number'] for p in forward['pages']] == [1, 2]
+    assert all(p['is_cached'] for p in forward['pages']) and engine.calls == 1
+
+
 def test_mixed_pages_routes_order_cache_and_forced_page(tmp_path):
     path = mixed_document(tmp_path)
     settings = configuration(tmp_path, path)
@@ -195,8 +212,8 @@ def test_crawl_bundle_has_current_sources_and_compiles():
     notebook = json.loads(Path('Crawl/notebooks/01_Crawl_Text.ipynb').read_text(encoding='utf-8'))
     for cell in notebook['cells']:
         if cell['cell_type'] == 'code':
-            compile(cell['source'], '<crawl-notebook>', 'exec')
-    encoded = notebook['cells'][2]['source'].split("b64decode('")[1].split("')")[0]
+            compile(''.join(cell['source']), '<crawl-notebook>', 'exec')
+    encoded = ''.join(notebook['cells'][2]['source']).split("b64decode('")[1].split("')")[0]
     payload = json.loads(zlib.decompress(base64.b64decode(encoded)))
     assert set(payload) == set(FILES)
     for name, value in payload.items():

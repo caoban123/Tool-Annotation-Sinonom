@@ -51,6 +51,7 @@ def build_ocr_han_notebook():
     # Colab: tải file bằng bảng Files bên trái, rồi điền /content/sach.pdf
     START_PAGE = 1
     END_PAGE = 3  # None = đến cuối; tự giới hạn theo số trang tài liệu
+    REVERSE_PAGES = False  # True: OCR và xuất TXT từ END_PAGE xuống START_PAGE
     USE_DEMO_IF_NO_INPUT = True
     USE_GPU = True  # False cho CPU; model thật vẫn nặng và chạy chậm
     MODEL_ID = "PaddlePaddle/PaddleOCR-VL-1.6"
@@ -192,6 +193,7 @@ def build_ocr_han_notebook():
     if not 1 <= START_PAGE <= end_page <= total_pages:
         raise ValueError(f'START_PAGE/END_PAGE không hợp lệ; tài liệu có {total_pages} trang')
     config = dict(input_path=str(input_file), start_page=START_PAGE, end_page=end_page,
+                  reverse_pages=REVERSE_PAGES,
                   model_id=MODEL_ID, model_revision=MODEL_REVISION, use_gpu=USE_GPU,
                   qwen_load_in_4bit=QWEN_LOAD_IN_4BIT,
                   max_new_tokens=MAX_NEW_TOKENS, max_pixels=MAX_PIXELS, render_scale=RENDER_SCALE,

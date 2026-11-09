@@ -31,10 +31,14 @@ def attach_page_metadata(db, document, metadata):
     full_text = metadata.get('full_text')
     if not isinstance(full_text, str) or text.strip() != full_text.replace('\r\n', '\n').strip():
         raise ValueError('Metadata không khớp text gốc của tài liệu')
-    previous, position, references = 0, 0, []
+    reverse_pages = metadata.get('reverse_pages', False)
+    if type(reverse_pages) is not bool:
+        raise ValueError('Metadata reverse_pages không hợp lệ')
+    previous, position, references = None, 0, []
     for page in pages:
         number, content = page.get('page_number'), page.get('text')
-        if type(number) is not int or number <= previous or not isinstance(content, str):
+        if (type(number) is not int or number < 1 or not isinstance(content, str)
+                or (previous is not None and (number >= previous if reverse_pages else number <= previous))):
             raise ValueError('Metadata có số trang hoặc text không hợp lệ')
         previous = number
         if not content:

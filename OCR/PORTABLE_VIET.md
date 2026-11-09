@@ -32,6 +32,23 @@ Kaggle: upload `OCR/notebooks/02_OCR_Viet.ipynb`, bật Internet và GPU.
 3. Cell 5 hiển thị tiến độ, số trang cache, trang cần kiểm tra và log trực tiếp.
 4. Cell 6 tải `viet_ocr.zip`; Kaggle có thể lấy ZIP trong thư mục Output.
 
+### OCR từ trang cao xuống thấp
+
+Trong cell cấu hình của cả notebook Hán, Việt và Crawl, đặt:
+
+```python
+START_PAGE = 1
+END_PAGE = 100  # None = trang cuối tài liệu
+REVERSE_PAGES = True
+```
+
+Khoảng trang vẫn khai báo số nhỏ trước, số lớn sau. Ví dụ trên xử lý và ghép TXT
+theo thứ tự 100, 99, …, 1; `False` giữ thứ tự 1, 2, …, 100. Không đảo chữ/cột trong
+mỗi trang. Metadata giữ số trang PDF gốc, có `reverse_pages` để web nhập đúng nguồn.
+Cache từng trang vẫn dùng lại khi đổi chiều; không cần bật `FORCE_REPROCESS`.
+Notebook cũ đã mở trên Colab/Kaggle cần thay bằng bản mới vì mã runner được đóng gói
+bên trong notebook; chỉ thêm biến vào notebook cũ sẽ chưa có tác dụng.
+
 Notebook đóng gói mã nguồn, dùng Python 3.11 riêng qua uv, PaddleOCR 3.7.0,
 PaddleX 3.7.2 và PaddlePaddle 3.2.2. Không cần clone repo hoặc restart kernel.
 Internet cần cho lần đầu cài thư viện/Python và tải model. Không tải bộ sách tự động,

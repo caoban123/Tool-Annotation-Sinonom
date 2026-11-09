@@ -145,6 +145,9 @@ def run(config, engine=None):
     end = count if end is None else end
     if type(start) is not int or type(end) is not int or not 1 <= start <= end <= count:
         raise ValueError(f'Invalid page range {start}..{end}; document has {count} pages')
+    reverse_pages = config.get('reverse_pages', False)
+    if type(reverse_pages) is not bool:
+        raise ValueError('reverse_pages must be a boolean')
     mode = config.get('input_mode', 'auto')
     forced = config.get('force_ocr_pages', [])
     if mode not in ('auto', 'ocr', 'text'):
@@ -207,7 +210,8 @@ def run(config, engine=None):
         if path.suffix.lower() == '.pdf' and mode != 'ocr':
             import pypdfium2 as pdfium
             document = pdfium.PdfDocument(str(path))
-        for number in range(start, end + 1):
+        page_numbers = range(end, start - 1, -1) if reverse_pages else range(start, end + 1)
+        for number in page_numbers:
             report('page_start', page=number, region=None)
             key = hashlib.sha256(f'{digest}:{signature}:{number}:{number in forced}'.encode()).hexdigest()
             checkpoint = cache_dir / f'{key}.json'
@@ -301,6 +305,7 @@ def run(config, engine=None):
                   method_counts={method: sum(p['method'] == method for p in pages) for method in ('pdf_text', 'ocr')},
                   source_file=str(path), source_sha256=digest, config=settings,
                   engine_info=engine_info, total_pages=len(pages), start_page=start, end_page=end,
+                  reverse_pages=reverse_pages,
                   pages=pages, errors=errors, text_file=text_file,
                   full_text='\n\n'.join(p['text'] for p in pages))
     engines = {json.dumps(p['engine_info'], sort_keys=True) for p in pages if p['status'] == 'complete'}

@@ -53,6 +53,7 @@ def build_ocr_viet_notebook(target=None):
     INPUT_PATH = ""  # Colab: /content/sach.pdf; Kaggle: /kaggle/input/ten-dataset/sach.pdf
     START_PAGE = 1
     END_PAGE = None  # None = hết tài liệu; số trang bắt đầu từ 1
+    REVERSE_PAGES = False  # True: OCR và xuất TXT từ END_PAGE xuống START_PAGE
     INPUT_MODE = "auto"  # auto: tự chọn từng trang; ocr: ép OCR; text: chỉ lấy lớp text PDF
     FORCE_OCR_PAGES = []  # VD [3, 7]: ép OCR những trang này trong chế độ auto
     DEVICE = "gpu:0"  # "cpu" nếu không dùng GPU; không tự đổi GPU sang CPU
@@ -123,6 +124,7 @@ def build_ocr_viet_notebook(target=None):
         subprocess.run([str(PYTHON), '-m', 'pip', 'install',
                         '-r', str(SOURCE_DIR / 'OCR/requirements-pdf.txt')], env=environment, check=True)
         plan_config = dict(input_path=str(input_file), start_page=START_PAGE, end_page=END_PAGE,
+                           reverse_pages=REVERSE_PAGES,
                            input_mode=INPUT_MODE, force_ocr_pages=FORCE_OCR_PAGES)
         plan_code = ('import json,sys; from Crawl.extractors.pdf_pages import plan_input; '
                      'print(json.dumps(plan_input(json.loads(sys.argv[1]))))')
@@ -201,6 +203,7 @@ def build_ocr_viet_notebook(target=None):
                   detector=DETECTOR, recognizer=RECOGNIZER,
                   input_mode=INPUT_MODE, force_ocr_pages=FORCE_OCR_PAGES,
                   start_page=START_PAGE, end_page=end_page, device=DEVICE,
+                  reverse_pages=REVERSE_PAGES,
                   render_scale=RENDER_SCALE, det_limit_side_len=DET_LIMIT_SIDE_LEN,
                   rec_batch_size=REC_BATCH_SIZE, use_textline_orientation=USE_TEXTLINE_ORIENTATION,
                   page_timeout=PAGE_TIMEOUT, review_score=REVIEW_SCORE,

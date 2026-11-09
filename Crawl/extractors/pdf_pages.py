@@ -93,6 +93,9 @@ def plan_input(config):
     end = count if end is None else end
     if type(start) is not int or type(end) is not int or not 1 <= start <= end <= count:
         raise ValueError(f'Invalid page range {start}..{end}; document has {count} pages')
+    reverse_pages = config.get('reverse_pages', False)
+    if type(reverse_pages) is not bool:
+        raise ValueError('reverse_pages must be a boolean')
     mode = config.get('input_mode', 'auto')
     if mode not in ('auto', 'ocr', 'text'):
         raise ValueError('input_mode must be auto, ocr or text')
@@ -105,7 +108,8 @@ def plan_input(config):
     context = pdfium.PdfDocument(str(path)) if path.suffix.lower() == '.pdf' and mode != 'ocr' else nullcontext(None)
     pages = []
     with context as document:
-        for number in range(start, end + 1):
+        page_numbers = range(end, start - 1, -1) if reverse_pages else range(start, end + 1)
+        for number in page_numbers:
             route = route_page(path, number, mode, forced, document)
             pages.append(dict(page_number=number, method=route['method'], reason=route['reason']))
     return dict(total_pdf_pages=count, total_pages=len(pages), pages=pages,
