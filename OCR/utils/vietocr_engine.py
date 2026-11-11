@@ -7,6 +7,7 @@ from pathlib import Path
 import queue
 import subprocess
 import threading
+import hashlib
 
 from OCR.utils.viet_engine import DEFAULT_DETECTOR, parse_prediction
 
@@ -82,6 +83,7 @@ class PaddleVietOCREngine:
                 self.messages.put({'error': 'VietOCR reader exited; see process log'})
         threading.Thread(target=read, daemon=True).start()
         self.timeout = config.get('page_timeout', 120)
+        self.output_dir = Path(config['output_dir'])
         try:
             ready = self.receive(config.get('model_timeout', 600))
             if not ready.get('ready'):
@@ -122,8 +124,22 @@ class PaddleVietOCREngine:
             results = self.receive(self.timeout)['results']
             if len(results) != len(crops):
                 raise ValueError('VietOCR returned mismatched line count')
-            return parse_prediction([dict(rec_texts=[r['text'] for r in results],
-                rec_scores=[r['confidence'] for r in results], rec_polys=[p for p, _ in crops])])
+            boxes, errors = [], []
+            for index, (result, (polygon, crop)) in enumerate(zip(results, crops)):
+                parsed = parse_prediction([dict(rec_texts=[result.get('text', '')],
+                    rec_scores=[result.get('confidence', 0)], rec_polys=[polygon])])
+                for box in parsed: box['split_retry'] = bool(result.get('split_retry'))
+                boxes.extend(parsed)
+                failures = result.get('errors', [])
+                if result.get('error'): failures = [dict(error=result['error'])]
+                if failures:
+                    data = io.BytesIO(); crop.save(data, format='PNG')
+                    relative = 'needs_review/line_' + hashlib.sha256(data.getvalue()).hexdigest()[:20] + '.png'
+                    destination = self.output_dir / relative
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    destination.write_bytes(data.getvalue())
+                    errors.append(dict(line_index=index, image=relative, polygon=polygon, failures=failures))
+            return dict(boxes=boxes, errors=errors) if errors else boxes
         finally:
             for _, crop in crops:
                 crop.close()

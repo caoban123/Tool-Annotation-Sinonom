@@ -1,5 +1,7 @@
 # Notebook OCR Hán trên Kaggle và Colab
 
+Chế độ nhiều PDF và tên TXT theo PDF: xem [hướng dẫn pipeline](BATCH_PIPELINE.md).
+
 Bản sửa ngày 04/11/2026. File dùng để upload là
 `OCR/notebooks/01_OCR_Han.ipynb`. Notebook tự mang các module OCR và ảnh minh họa;
 không phụ thuộc nhánh GitHub đã được push, không clone/reset repo, không tải cả bộ sách mặc định.
@@ -27,7 +29,7 @@ yêu cầu chọn rõ. Không có tài liệu thì chạy ảnh minh họa kèm 
 Đường dẫn đã điền nhưng sai luôn báo lỗi, không chuyển sang ảnh mẫu.
 
 Colab lưu tại `/content/han_ocr/output`, Kaggle tại `/kaggle/working/han_ocr/output`.
-`han.txt` là UTF-8; `han_metadata.json` lưu kết quả từng trang, thời gian, model và cấu hình.
+`<tên PDF>.txt` là UTF-8; `han_metadata.json` lưu kết quả từng trang, thời gian, model và cấu hình.
 ZIP có thêm checkpoint để tiếp tục sau khi gián đoạn.
 
 ## Thay đổi kỹ thuật

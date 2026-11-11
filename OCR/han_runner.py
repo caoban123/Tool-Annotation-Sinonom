@@ -8,6 +8,7 @@ import time
 import zipfile
 from pathlib import Path
 from PIL import Image, ImageOps
+from OCR.batch_runner import text_basename
 from OCR.utils.checkpoints import OCRCheckpointManager
 from OCR.utils.export_text import export_ocr_result
 from OCR.utils.ocr_pipeline import OCRPipeline, PaddleVLOCREngine
@@ -59,8 +60,10 @@ def run(config, engine=None):
     if config.get('split_spread', False) and config.get('reading_order', 'rtl_vertical') != 'rtl_vertical':
         raise ValueError('split_spread danh cho sach doc: nua phai truoc nua trai')
     output_dir = Path(config['output_dir']).resolve()
+    basename = text_basename(config, 'han')
+    full_name, partial_name = basename + '.txt', basename + '.partial.txt'
     output_dir.mkdir(parents=True, exist_ok=True)
-    for name in ('han.txt', 'han.partial.txt', 'han_metadata.json', 'han_ocr.zip'):
+    for name in (full_name, partial_name, 'han_metadata.json', 'han_ocr.zip'):
         (output_dir / name).unlink(missing_ok=True)
     digest = source_digest(path)
     qwen = is_qwen_model(config['model_id'])
@@ -90,7 +93,7 @@ def run(config, engine=None):
         cached = None if config.get('force_reprocess') else manager.get_cached_result(key)
         if cached is not None:
             pages.append(dict(cached, is_cached=True))
-            (output_dir / 'han.partial.txt').write_text('\n'.join(p['text'] for p in pages), encoding='utf-8')
+            (output_dir / partial_name).write_text('\n'.join(p['text'] for p in pages), encoding='utf-8')
             print(f'Trang {number}/{end}: cache', flush=True)
             report_progress('page_done', page=number, region=None)
             continue
@@ -150,7 +153,7 @@ def run(config, engine=None):
             if not page['errors'] and not manager.save_cached_result(key, page):
                 raise RuntimeError(f'Khong luu duoc checkpoint trang {number}')
             pages.append(page)
-            (output_dir / 'han.partial.txt').write_text('\n'.join(p['text'] for p in pages), encoding='utf-8')
+            (output_dir / partial_name).write_text('\n'.join(p['text'] for p in pages), encoding='utf-8')
             (output_dir / 'progress.json').write_text(json.dumps({
                 'last_page': number, 'pages_processed': len(pages),
                 'needs_review': [p['page_number'] for p in pages if p.get('errors')]
@@ -175,7 +178,7 @@ def run(config, engine=None):
     result['errors'] = [error for page in pages for error in page.get('errors', [])]
     result['complete'] = not result['errors']
     result['status'] = 'complete' if result['complete'] else 'needs_review'
-    result['text_file'] = 'han.txt' if result['complete'] else 'han.partial.txt'
+    result['text_file'] = full_name if result['complete'] else partial_name
     report_progress('export', region=None)
     from importlib.metadata import version
     result['packages'] = {}
@@ -185,10 +188,10 @@ def run(config, engine=None):
         except Exception:
             result['packages'][package] = 'not installed'
     if result['complete']:
-        export_ocr_result(result, output_dir / 'han.txt', output_dir / 'han_metadata.json')
-        (output_dir / 'han.partial.txt').unlink(missing_ok=True)
+        export_ocr_result(result, output_dir / full_name, output_dir / 'han_metadata.json')
+        (output_dir / partial_name).unlink(missing_ok=True)
     else:
-        (output_dir / 'han.partial.txt').write_text(result['full_text'], encoding='utf-8')
+        (output_dir / partial_name).write_text(result['full_text'], encoding='utf-8')
         (output_dir / 'han_metadata.json').write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
     (output_dir / 'error_report.json').write_text(json.dumps(result['errors'], ensure_ascii=False, indent=2), encoding='utf-8')
     with zipfile.ZipFile(output_dir / 'han_ocr.zip', 'w', zipfile.ZIP_DEFLATED) as archive:

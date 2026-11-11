@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def build_ocr_han_notebook():
-    files = ['OCR/han_runner.py', 'OCR/utils/__init__.py', 'OCR/utils/ocr_pipeline.py',
+    files = ['OCR/han_runner.py', 'OCR/batch_runner.py', 'OCR/utils/__init__.py', 'OCR/utils/ocr_pipeline.py',
              'OCR/utils/checkpoints.py', 'OCR/utils/export_text.py', 'OCR/utils/page_order.py',
              'OCR/utils/render_pdf.py', 'OCR/utils/notebook_process.py', 'OCR/requirements-han.txt',
              'OCR/utils/regions.py', 'OCR/utils/resilient_pages.py', 'OCR/utils/qwen_engine.py',
@@ -41,13 +41,16 @@ def build_ocr_han_notebook():
 
     Mô hình trả văn bản OCR, không phải tọa độ từng chữ. Cần đối chiếu scan để kiểm tra
     chữ hiếm và thứ tự đọc. `SPLIT_SPREAD=True` xử lý ảnh hai mặt sách dọc: phải rồi trái.
-    Kết quả: `han.txt`, `han_metadata.json`, `han_ocr.zip` và checkpoint từng trang.
+    Kết quả: `<tên PDF>.txt`, `han_metadata.json`, `han_ocr.zip` và checkpoint từng trang.
+    Bật `BATCH_MODE` và điền `INPUT_PATHS` để chạy lần lượt nhiều PDF, tải ZIP tổng.
     ''')
     cell('code', '''
     # 1. Cấu hình (thay INPUT_PATH bằng PDF/PNG/JPG/TIFF của bạn)
     from pathlib import Path
     import os, sys, json, subprocess
     INPUT_PATH = ""  # VD Kaggle: /kaggle/input/ten-dataset/sach.pdf
+    BATCH_MODE = False  # True: xử lý lần lượt các PDF trong INPUT_PATHS
+    INPUT_PATHS = []  # VD ["/content/quyen_1.pdf", "/content/quyen_2.pdf"]
     # Colab: tải file bằng bảng Files bên trái, rồi điền /content/sach.pdf
     START_PAGE = 1
     END_PAGE = 3  # None = đến cuối; tự giới hạn theo số trang tài liệu
@@ -96,7 +99,10 @@ def build_ocr_han_notebook():
     cell('code', bootstrap.replace('__PAYLOAD__', encoded).replace('__HASH__', hashlib.sha256(payload).hexdigest()))
     cell('code', '''
     # 3. Chọn đầu vào rõ ràng, không tự tải bộ sách 660 MB
-    input_file = Path(INPUT_PATH).expanduser() if INPUT_PATH else None
+    import runpy
+    batch_inputs = runpy.run_path(str(SOURCE_DIR / 'OCR/batch_runner.py'))['resolve_inputs']
+    input_files = batch_inputs(INPUT_PATHS) if BATCH_MODE and not SMOKE else []
+    input_file = input_files[0] if input_files else Path(INPUT_PATH).expanduser() if INPUT_PATH else None
     if input_file is not None and not input_file.is_file():
         raise FileNotFoundError(f'INPUT_PATH không tồn tại: {input_file}')
     if input_file is None:
@@ -116,6 +122,7 @@ def build_ocr_han_notebook():
         else:
             raise FileNotFoundError('Điền INPUT_PATH ở cell 1 trước khi chạy.')
     input_file = input_file.resolve()
+    if not input_files: input_files = [input_file]
     print('Tài liệu được chọn:', input_file)
     from IPython.display import display, FileLink
     if input_file.suffix.lower() != '.pdf':
@@ -181,7 +188,7 @@ def build_ocr_han_notebook():
     ''')
     cell('code', '''
     # 5. Đọc số trang và ghi cấu hình đã kiểm tra
-    if not SMOKE:
+    if not SMOKE and not BATCH_MODE:
         count_code = "from pathlib import Path; from OCR.han_runner import page_count; import sys; print(page_count(Path(sys.argv[1])))"
         environment = dict(os.environ, PYTHONPATH=str(SOURCE_DIR), PYTHONUNBUFFERED='1',
                            USE_TF='0', USE_FLAX='0', TOKENIZERS_PARALLELISM='false', HF_HUB_DISABLE_XET='1')
@@ -190,7 +197,7 @@ def build_ocr_han_notebook():
     else:
         total_pages = 1
     end_page = total_pages if END_PAGE is None else min(END_PAGE, total_pages)
-    if not 1 <= START_PAGE <= end_page <= total_pages:
+    if not BATCH_MODE and not 1 <= START_PAGE <= end_page <= total_pages:
         raise ValueError(f'START_PAGE/END_PAGE không hợp lệ; tài liệu có {total_pages} trang')
     config = dict(input_path=str(input_file), start_page=START_PAGE, end_page=end_page,
                   reverse_pages=REVERSE_PAGES,
@@ -203,6 +210,10 @@ def build_ocr_han_notebook():
                   force_reprocess=FORCE_REPROCESS, output_dir=str(WORK_DIR / 'output'),
                   checkpoint_dir=CHECKPOINT_DIR or str(WORK_DIR / 'output/checkpoints'))
     config_file = WORK_DIR / 'config.json'
+    config['text_basename'] = input_file.stem
+    if BATCH_MODE:
+        config.update(input_paths=list(map(str, input_files)), end_page=END_PAGE,
+                      output_dir=str(WORK_DIR / 'batch_output'), checkpoint_dir=CHECKPOINT_DIR)
     config_file.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps(config, ensure_ascii=False, indent=2))
     ''')
@@ -212,15 +223,25 @@ def build_ocr_han_notebook():
     if not SMOKE:
         import runpy
         run_logged_process = runpy.run_path(str(SOURCE_DIR / 'OCR/utils/notebook_process.py'))['run_logged_process']
+        command = ([str(PYTHON), '-u', '-m', 'OCR.batch_runner', '--kind', 'han'] if BATCH_MODE else
+                   [str(PYTHON), '-u', '-m', 'OCR.han_runner'])
         run_logged_process(
-            [str(PYTHON), '-u', '-m', 'OCR.han_runner', '--config', str(config_file)],
+            command + ['--config', str(config_file)],
             cwd=SOURCE_DIR, env=environment, log_path=WORK_DIR / 'ocr_run.log', show_progress=True)
     else:
         print('SMOKE: không nhận dạng và không xuất han.txt.')
     ''')
     cell('code', '''
     # 7. Kiểm tra đầu ra và tải về (Kaggle: mở Output hoặc liên kết ZIP)
-    if not SMOKE:
+    if not SMOKE and BATCH_MODE:
+        output_dir = Path(config['output_dir'])
+        report = json.loads((output_dir / 'batch_report.json').read_text(encoding='utf-8'))
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        display(FileLink(os.path.relpath(output_dir / 'batch_ocr.zip', Path.cwd())))
+        if 'google.colab' in sys.modules:
+            from google.colab import files
+            files.download(str(output_dir / 'batch_ocr.zip'))
+    elif not SMOKE:
         output_dir = Path(config['output_dir'])
         metadata = json.loads((output_dir / 'han_metadata.json').read_text(encoding='utf-8'))
         text_file = metadata.get('text_file', 'han.txt')
@@ -230,7 +251,7 @@ def build_ocr_han_notebook():
         assert not metadata['engine_info']['is_mock']
         if not metadata.get('complete', True):
             print('⚠ CẦN KIỂM TRA: kết quả chưa đầy đủ. Xem error_report.json và ảnh needs_review trong ZIP.')
-            print('Không dùng han.partial.txt như bản OCR hoàn chỉnh.')
+            print(f'Không dùng {text_file} như bản OCR hoàn chỉnh.')
         print('Số trang:', metadata['total_pages'], '| Số ký tự:', len(text))
         print('Thời gian inference:', sum(p['inference_time_sec'] for p in metadata['pages'] if not p['is_cached']))
         blank = [p['page_number'] for p in metadata['pages'] if p['is_blank']]
@@ -266,7 +287,7 @@ def build_ocr_han_notebook():
     - Trang nhiều cột được chia tại đường kẻ/khoảng trắng. Vùng bị lặp, timeout hoặc thiếu EOS
       được chia nhỏ tiếp với số lần thử hữu hạn; không tiếp tục tăng toàn trang lên 16K token.
     - Vùng vẫn lỗi được lưu trong needs_review và error_report.json; notebook tiếp tục trang khác.
-      Chỉ xuất han.txt nếu mọi trang đầy đủ; khi còn thiếu thì xuất han.partial.txt có cảnh báo.
+      Chỉ xuất <tên PDF>.txt nếu mọi trang đầy đủ; còn thiếu thì xuất <tên PDF>.partial.txt.
     - Hết phiên: lưu ZIP/checkpoints. Khi mở phiên mới, đưa checkpoint vào thư mục writable
       và đặt CHECKPOINT_DIR trỏ tới đó. Cache được phân biệt theo hash tài liệu và cấu hình.
 

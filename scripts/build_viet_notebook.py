@@ -7,8 +7,8 @@ import textwrap
 import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
-FILES = ['OCR/viet_runner.py', 'OCR/utils/__init__.py', 'OCR/utils/viet_engine.py',
-         'OCR/utils/vietocr_engine.py', 'OCR/utils/vietocr_reader.py',
+FILES = ['OCR/viet_runner.py', 'OCR/batch_runner.py', 'OCR/utils/__init__.py', 'OCR/utils/viet_engine.py',
+         'OCR/utils/vietocr_engine.py', 'OCR/utils/vietocr_reader.py', 'OCR/utils/vietocr_lines.py',
          'OCR/configs/vietocr/base.yml', 'OCR/configs/vietocr/vgg-transformer.yml',
          'OCR/configs/vietocr/SOURCE.txt', 'OCR/requirements-vietocr.txt',
          'OCR/configs/vietocr/LICENSE',
@@ -52,6 +52,8 @@ def build_ocr_viet_notebook(target=None):
     from pathlib import Path
     import os, sys, json, subprocess
     INPUT_PATH = ""  # Colab: /content/sach.pdf; Kaggle: /kaggle/input/ten-dataset/sach.pdf
+    BATCH_MODE = False  # True: xử lý lần lượt các PDF trong INPUT_PATHS
+    INPUT_PATHS = []  # VD ["/content/quyen_1.pdf", "/content/quyen_2.pdf"]
     START_PAGE = 1
     END_PAGE = None  # None = hết tài liệu; số trang bắt đầu từ 1
     REVERSE_PAGES = False  # True: OCR và xuất TXT từ END_PAGE xuống START_PAGE
@@ -87,12 +89,17 @@ def build_ocr_viet_notebook(target=None):
         target = SOURCE_DIR / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(base64.b64decode(data))
-    input_file = (SOURCE_DIR / 'tests/fixtures/sample_viet_scan.png') if SMOKE else Path(INPUT_PATH).expanduser()
-    if not SMOKE and not INPUT_PATH:
+    import runpy
+    batch_inputs = runpy.run_path(str(SOURCE_DIR / 'OCR/batch_runner.py'))['resolve_inputs']
+    input_files = batch_inputs(INPUT_PATHS) if BATCH_MODE and not SMOKE else []
+    input_file = ((SOURCE_DIR / 'tests/fixtures/sample_viet_scan.png') if SMOKE else
+                  input_files[0] if input_files else Path(INPUT_PATH).expanduser())
+    if not SMOKE and not INPUT_PATH and not BATCH_MODE:
         raise ValueError('Tải tài liệu lên và điền INPUT_PATH trong cell 1.')
     if not input_file.is_file():
         raise FileNotFoundError(f'Không thấy tài liệu: {input_file}')
     input_file = input_file.resolve()
+    if not input_files: input_files = [input_file]
     print('Tài liệu:', input_file)
     '''
     cell('code', bootstrap.replace('__PAYLOAD__', base64.b64encode(zlib.compress(payload)).decode())
@@ -129,8 +136,16 @@ def build_ocr_viet_notebook(target=None):
                            input_mode=INPUT_MODE, force_ocr_pages=FORCE_OCR_PAGES)
         plan_code = ('import json,sys; from Crawl.extractors.pdf_pages import plan_input; '
                      'print(json.dumps(plan_input(json.loads(sys.argv[1]))))')
-        plan = json.loads(subprocess.check_output([str(PYTHON), '-c', plan_code, json.dumps(plan_config)],
-                                                  env=environment, text=True))
+        plans = []
+        for path in input_files:
+            try:
+                plans.append(json.loads(subprocess.check_output(
+                    [str(PYTHON), '-c', plan_code, json.dumps(dict(plan_config, input_path=str(path)))],
+                    env=environment, text=True)))
+            except subprocess.CalledProcessError:
+                if not BATCH_MODE: raise
+                print('Không kiểm tra được PDF, runner sẽ ghi lỗi trong batch_report:', path)
+        plan = {key: sum(p[key] for p in plans) for key in ('text_pages', 'ocr_pages')}
         print('Trang lấy text trực tiếp:', plan['text_pages'], '| Trang cần OCR:', plan['ocr_pages'])
         if plan['ocr_pages']:
             if DEVICE != 'cpu':
@@ -195,11 +210,11 @@ def build_ocr_viet_notebook(target=None):
     ''')
     cell('code', '''
     # 4. Ghi cấu hình; kiểm tra số trang bằng worker đã cài thư viện
-    total_pages = 1 if SMOKE else int(subprocess.check_output(
+    total_pages = 1 if SMOKE or BATCH_MODE else int(subprocess.check_output(
         [str(PYTHON), '-c', 'from OCR.viet_runner import page_count; import sys; print(page_count(sys.argv[1]))',
          str(input_file)], env=environment, text=True).strip())
     end_page = total_pages if END_PAGE is None else END_PAGE
-    if not 1 <= START_PAGE <= end_page <= total_pages:
+    if not BATCH_MODE and not 1 <= START_PAGE <= end_page <= total_pages:
         raise ValueError(f'Khoảng trang không hợp lệ; tài liệu có {total_pages} trang')
     config = dict(input_path=str(input_file), output_dir=str(WORK_DIR / 'output'),
                   ocr_backend=OCR_BACKEND, vietocr_python=str(VIETOCR_PYTHON),
@@ -213,6 +228,10 @@ def build_ocr_viet_notebook(target=None):
                   continue_on_error=True, force_reprocess=FORCE_REPROCESS,
                   checkpoint_dir=CHECKPOINT_DIR or str(WORK_DIR / 'output/checkpoints'))
     config_file = WORK_DIR / 'config.json'
+    config['text_basename'] = input_file.stem
+    if BATCH_MODE:
+        config.update(input_paths=list(map(str, input_files)), end_page=END_PAGE,
+                      output_dir=str(WORK_DIR / 'batch_output'), checkpoint_dir=CHECKPOINT_DIR)
     config_file.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps(config, ensure_ascii=False, indent=2))
     ''')
@@ -221,14 +240,25 @@ def build_ocr_viet_notebook(target=None):
     if not SMOKE:
         import runpy
         run_logged = runpy.run_path(str(SOURCE_DIR / 'OCR/utils/notebook_process.py'))['run_logged_process']
-        run_logged([str(PYTHON), '-u', '-m', 'OCR.viet_runner', '--config', str(config_file)],
+        command = ([str(PYTHON), '-u', '-m', 'OCR.batch_runner', '--kind', 'viet'] if BATCH_MODE else
+                   [str(PYTHON), '-u', '-m', 'OCR.viet_runner'])
+        run_logged(command + ['--config', str(config_file)],
                    cwd=SOURCE_DIR, env=environment, log_path=WORK_DIR / 'ocr_run.log')
     else:
         print('SMOKE: bỏ qua OCR, không xuất viet.txt giả.')
     ''')
     cell('code', '''
     # 6. Xem báo cáo và tải kết quả
-    if not SMOKE:
+    if not SMOKE and BATCH_MODE:
+        from IPython.display import display, FileLink
+        output = Path(config['output_dir'])
+        report = json.loads((output / 'batch_report.json').read_text(encoding='utf-8'))
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        display(FileLink(os.path.relpath(output / 'batch_ocr.zip', Path.cwd())))
+        if 'google.colab' in sys.modules:
+            from google.colab import files
+            files.download(str(output / 'batch_ocr.zip'))
+    elif not SMOKE:
         from IPython.display import display, FileLink
         output = Path(config['output_dir'])
         report = json.loads((output / 'viet_metadata.json').read_text(encoding='utf-8'))
@@ -251,7 +281,7 @@ def build_ocr_viet_notebook(target=None):
     dùng lại `CHECKPOINT_DIR` trên Drive, chọn đúng tài liệu/cấu hình và Run all.
     Cache gắn với SHA256 nội dung, trang và cấu hình/model; không dùng nhầm sách cùng tên.
 
-    ZIP gồm `viet.txt` (khi xử lý đủ trang) hoặc `viet.partial.txt` (còn lỗi),
+    ZIP gồm `<tên PDF>.txt` (khi xử lý đủ trang) hoặc `<tên PDF>.partial.txt` (còn lỗi),
     `viet_metadata.json` (text, tọa độ, điểm từng dòng, số trang gốc), `error_report.json`,
     `progress.json` và checkpoint. Trang trắng/dòng điểm thấp được gắn cờ; điểm confidence
     không phải phần trăm chính xác. Log đầy đủ ở `WORK_DIR/ocr_run.log`.

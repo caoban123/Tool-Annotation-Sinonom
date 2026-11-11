@@ -12,6 +12,26 @@ from urllib.request import urlopen
 WEIGHTS_SHA256 = '380512193a8b6cbf6fad80deacdc9b6939d10d473d199892fc6408d13775ea59'
 
 
+def recognize_batch(images, process_input, translate, model, vocab, torch, device, batch_size):
+    results = [None] * len(images)
+    buckets = {}
+    for index, image in enumerate(images):
+        tensor = process_input(image, 32, 32, 1024)
+        buckets.setdefault(tensor.shape[-1], []).append((index, tensor))
+    for bucket in buckets.values():
+        for start in range(0, len(bucket), batch_size):
+            batch = bucket[start:start + batch_size]
+            tensor = torch.cat([t for _, t in batch]).to(device)
+            tokens, probabilities = translate(tensor, model, max_seq_length=512)
+            for (index, _), sequence, probability in zip(batch, tokens.tolist(), probabilities):
+                if 2 not in sequence:
+                    results[index] = dict(error='VietOCR exceeded 512 tokens without EOS', code='token_limit')
+                    continue
+                text = vocab.decode(sequence)
+                results[index] = dict(text=text, confidence=float(probability) if text.strip() else 0.0)
+    return results
+
+
 def main():
     protocol = sys.stdout
     # Libraries sometimes print downloads/model diagnostics to stdout.
@@ -58,25 +78,16 @@ def main():
     for line in sys.stdin:
         try:
             request = json.loads(line)
-            results = [None] * len(request['images'])
-            with contextlib.redirect_stdout(sys.stderr), torch.inference_mode():
-                buckets = {}
-                for index, encoded in enumerate(request['images']):
-                    with Image.open(io.BytesIO(base64.b64decode(encoded))) as image:
-                        tensor = process_input(image, 32, 32, 1024)
-                    buckets.setdefault(tensor.shape[-1], []).append((index, tensor))
-                batch_size = options.get('batch_size', 16)
-                for bucket in buckets.values():
-                    for start in range(0, len(bucket), batch_size):
-                        batch = bucket[start:start + batch_size]
-                        tensor = torch.cat([t for _, t in batch]).to(device)
-                        tokens, probabilities = translate(tensor, model, max_seq_length=512)
-                        for (index, _), sequence, probability in zip(batch, tokens.tolist(), probabilities):
-                            if 2 not in sequence:
-                                raise RuntimeError('VietOCR line exceeded 512 tokens before EOS; split the line')
-                            text = vocab.decode(sequence)
-                            score = float(probability) if text.strip() else 0.0
-                            results[index] = {'text': text, 'confidence': score}
+            with contextlib.ExitStack() as stack, contextlib.redirect_stdout(sys.stderr), torch.inference_mode():
+                images = [stack.enter_context(Image.open(io.BytesIO(base64.b64decode(encoded))))
+                          for encoded in request['images']]
+                recognize = lambda crops: recognize_batch(crops, process_input, translate, model, vocab,
+                                                          torch, device, options.get('batch_size', 16))
+                results = recognize(images)
+                from OCR.utils.vietocr_lines import recover_line
+                for index, result in enumerate(results):
+                    if result.get('code') == 'token_limit':
+                        results[index] = recover_line(images[index], recognize, result)
             response = {'results': results}
         except Exception:
             response = {'error': traceback.format_exc()}

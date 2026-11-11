@@ -9,6 +9,7 @@ import time
 import traceback
 import zipfile
 from PIL import Image, ImageOps
+from OCR.batch_runner import text_basename
 from OCR.utils.notebook_process import emit_progress
 from OCR.utils.render_pdf import render_pdf_to_images
 from Crawl.extractors.pdf_pages import route_page, ROUTING_VERSION
@@ -188,10 +189,12 @@ def run(config, engine=None):
             (folder / 'base.yml').read_bytes() + (folder / 'vgg-transformer.yml').read_bytes()).hexdigest()
     signature = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     output = Path(config['output_dir']).resolve()
+    basename = text_basename(config, 'viet')
+    full_name, partial_name = basename + '.txt', basename + '.partial.txt'
     cache_dir = Path(config.get('checkpoint_dir') or output / 'checkpoints').resolve()
     output.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    for name in ('viet.txt', 'viet.partial.txt', 'viet_metadata.json', 'viet_ocr.zip'):
+    for name in (full_name, partial_name, 'viet_metadata.json', 'viet_ocr.zip'):
         (output / name).unlink(missing_ok=True)
     pages, errors, checkpoints = [], [], []
     owns_engine = engine is None
@@ -248,6 +251,10 @@ def run(config, engine=None):
                             initializing = False
                         inference_started = True
                         boxes = engine.recognize_image(image)
+                        line_errors = []
+                        if isinstance(boxes, dict):
+                            line_errors = boxes['errors']
+                            boxes = boxes['boxes']
                         text = '\n'.join(b['text'] for b in boxes)
                         page_engine = engine.info
                     page = dict(page_number=number, text=text,
@@ -258,12 +265,19 @@ def run(config, engine=None):
                                 extraction_error=route.get('extraction_error'),
                                 ocr_time_sec=round(time.monotonic() - began, 3) if route['method'] == 'ocr' else 0,
                                 inference_time_sec=round(time.monotonic() - began, 3))
-                    page['payload_sha256'] = checkpoint_digest(page)
-                    write_json(checkpoint, page)
+                    if route['method'] == 'ocr' and line_errors:
+                        checkpoint.unlink(missing_ok=True)
+                        page['status'] = 'partial'
+                        page['errors'] = line_errors
+                        errors.extend(dict(page_number=number, **error) for error in line_errors)
+                    else:
+                        page['payload_sha256'] = checkpoint_digest(page)
+                        write_json(checkpoint, page)
                 except Exception as error:
                     if initializing:
                         raise
                     traceback.print_exc()
+                    checkpoint.unlink(missing_ok=True)
                     errors.append(dict(page_number=number, error=str(error)))
                     page = dict(page_number=number, text='', boxes=[], status='error',
                                 method=route['method'], routing_reason=route['reason'], text_quality=route['quality'],
@@ -274,7 +288,7 @@ def run(config, engine=None):
                 finally:
                     if image is not None:
                         image.close()
-            if page['status'] == 'complete':
+            if page.get('engine_info'):
                 engine_info = page['engine_info']
             if page['status'] == 'complete':
                 checkpoints.append(checkpoint)
@@ -282,11 +296,12 @@ def run(config, engine=None):
             page['is_blank'] = not page['text'].strip()
             page['low_confidence_lines'] = [i for i, b in enumerate(page['boxes'])
                                             if b['confidence'] < settings['review_score']]
-            page['needs_review'] = bool(page['status'] == 'error' or page['is_blank'] or page['low_confidence_lines']
+            page['needs_review'] = bool(page['status'] != 'complete' or page['is_blank'] or page['low_confidence_lines']
+                or any(b.get('split_retry') for b in page['boxes'])
                 or (page['method'] == 'pdf_text' and
                     (not page['text_quality']['usable'] or page['text_quality'].get('warnings'))))
             pages.append(page)
-            (output / 'viet.partial.txt').write_bytes('\n\n'.join(p['text'] for p in pages).encode('utf-8'))
+            (output / partial_name).write_bytes('\n\n'.join(p['text'] for p in pages).encode('utf-8'))
             write_json(output / 'progress.json', dict(processed=len(pages), total=total, page=number, errors=errors))
             write_json(output / 'error_report.json', dict(errors=errors))
             print(f"Trang {number}/{end}: {page['method']} | {'cache' if page['is_cached'] else page['status']} | {len(page['text'])} ký tự", flush=True)
@@ -300,7 +315,7 @@ def run(config, engine=None):
             document.close()
     report('export')
     complete = not errors
-    text_file = 'viet.txt' if complete else 'viet.partial.txt'
+    text_file = full_name if complete else partial_name
     result = dict(complete=complete, needs_review=any(p['needs_review'] for p in pages),
                   method_counts={method: sum(p['method'] == method for p in pages) for method in ('pdf_text', 'ocr')},
                   source_file=str(path), source_sha256=digest, config=settings,
@@ -321,8 +336,13 @@ def run(config, engine=None):
             archive.write(output / name, name)
         for checkpoint in checkpoints:
             archive.write(checkpoint, 'checkpoints/' + checkpoint.name)
+        for error in errors:
+            if error.get('image'):
+                image_file = output / error['image']
+                if image_file.is_file() and error['image'] not in archive.namelist():
+                    archive.write(image_file, error['image'])
     if complete:
-        (output / 'viet.partial.txt').unlink(missing_ok=True)
+        (output / partial_name).unlink(missing_ok=True)
     report('finish', complete=complete and not result['needs_review'])
     return result
 

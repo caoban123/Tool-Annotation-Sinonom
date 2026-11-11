@@ -1,5 +1,8 @@
 # OCR tiếng Việt trên Colab / Kaggle
 
+Chế độ nhiều PDF, tên TXT theo PDF và xử lý VietOCR vượt 512 token:
+xem [hướng dẫn pipeline](BATCH_PIPELINE.md).
+
 ## Một luồng cho PDF text, scan và PDF trộn
 
 Giữ `INPUT_MODE="auto"` (mặc định): hệ thống kiểm tra **từng trang**, lấy text trực
