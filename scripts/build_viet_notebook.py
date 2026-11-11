@@ -12,7 +12,8 @@ FILES = ['OCR/viet_runner.py', 'OCR/utils/__init__.py', 'OCR/utils/viet_engine.p
          'OCR/configs/vietocr/base.yml', 'OCR/configs/vietocr/vgg-transformer.yml',
          'OCR/configs/vietocr/SOURCE.txt', 'OCR/requirements-vietocr.txt',
          'OCR/configs/vietocr/LICENSE',
-         'OCR/utils/notebook_process.py', 'OCR/utils/render_pdf.py', 'OCR/requirements-viet.txt',
+         'OCR/utils/notebook_process.py', 'OCR/utils/install_paddle.py',
+         'OCR/utils/render_pdf.py', 'OCR/requirements-viet.txt',
          'OCR/requirements-pdf.txt', 'Crawl/extractors/pdf_pages.py',
          'tests/fixtures/sample_viet_scan.png']
 
@@ -148,11 +149,13 @@ def build_ocr_viet_notebook(target=None):
                                        'hoặc chọn DEVICE="cpu" ở cell 1. Chi tiết: ' +
                                        gpu_check.stderr.strip())
                 print(gpu_check.stdout)
-            runtime = 'paddlepaddle' if DEVICE == 'cpu' else 'paddlepaddle-gpu'
             index = 'cpu' if DEVICE == 'cpu' else GPU_WHEEL
-            subprocess.run([str(PYTHON), '-m', 'pip', 'install', runtime + '==3.2.2',
-                            '--index-url', 'https://www.paddlepaddle.org.cn/packages/stable/' + index + '/'],
-                           env=environment, check=True)
+            import runpy
+            run_install = runpy.run_path(str(SOURCE_DIR / 'OCR/utils/notebook_process.py'))['run_logged_process']
+            run_install([str(PYTHON), '-u', '-m', 'OCR.utils.install_paddle',
+                         '--cuda', index, '--log-dir', str(WORK_DIR)],
+                        cwd=SOURCE_DIR, env=environment, log_path=WORK_DIR / 'paddle_install.log',
+                        show_progress=False)
             subprocess.run([str(PYTHON), '-m', 'pip', 'install',
                             '-r', str(SOURCE_DIR / 'OCR/requirements-viet.txt')], env=environment, check=True)
         preflight = """import paddle, paddleocr

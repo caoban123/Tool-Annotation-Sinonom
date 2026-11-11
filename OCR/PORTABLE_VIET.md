@@ -55,6 +55,15 @@ Internet cần cho lần đầu cài thư viện/Python và tải model. Không 
 không thay đường dẫn thiếu bằng ảnh mẫu. `OCR_NOTEBOOK_SMOKE=1` chỉ kiểm tra các cell;
 không tạo kết quả OCR và không kiểm chứng độ chính xác.
 
+Nếu kho Paddle báo `No matching distribution found` / 502 / timeout, bước cài đặt
+thử lại hữu hạn rồi dùng wheel 3.2.2 cùng CPU/CUDA từ máy chủ tệp chính thức
+`paddle-whl.bj.bcebos.com` (Linux x86_64 / Python 3.11). Dependencies lấy từ PyPI.
+Không tự đổi sang CPU, CUDA khác hoặc nâng phiên bản Paddle. Wheel cu126 khoảng
+1,9 GB; cần đủ dung lượng và Internet. Xem `WORK_DIR/paddle_install.log` và
+`paddle_install.index.log`, `paddle_install.official-wheel.log` để lấy lỗi pip gốc.
+Đây là đường tải dự phòng, không khắc phục được trường hợp cả máy chủ wheel và
+PyPI cùng không truy cập được. GPU vẫn được kiểm tra bằng phép toán sau khi cài.
+
 ## Paddle tìm dòng + VietOCR đọc chữ (mặc định mới)
 
 Trong cell 1, giữ `OCR_BACKEND="paddle_vietocr"`. Paddle dùng detector
